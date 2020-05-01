@@ -1,5 +1,5 @@
 srv/MiSTer_WebMenu: Makefile srv/statik/statik.go srv/main.go srv/go.sum srv/go.mod
-	cd srv && nix-shell -p go --run "GOPATH=/tmp GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build"
+	cd srv && nix-shell -p go git --run "GOPATH=/tmp GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build"
 
 srv/statik/statik.go: Makefile web/build/index.html
 	nix-shell -p statik --run "statik -f -src web/build/ -dest srv"
