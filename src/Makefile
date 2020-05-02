@@ -1,3 +1,6 @@
+webmenu.sh: Makefile srv/MiSTer_WebMenu
+	nix-shell -p sharutils --run ./packscript.sh > webmenu.sh
+
 srv/MiSTer_WebMenu: Makefile srv/statik/statik.go srv/main.go srv/go.sum srv/go.mod
 	cd srv && nix-shell -p go git --run "GOPATH=/tmp GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build"
 

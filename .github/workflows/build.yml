@@ -12,12 +12,11 @@ jobs:
     - name: Upload Artifact
       uses: actions/upload-artifact@v2
       with:
-        name: MiSTer_WebMenu
-        path: src/srv/MiSTer_WebMenu
+        name: webmenu.sh
+        path: src/webmenu.sh
     - name: Release
       uses: fnkr/github-action-ghr@v1
       if: startsWith(github.ref, 'refs/tags/')
       env:
-        GHR_COMPRESS: xz
-        GHR_PATH: src/srv/MiSTer_WebMenu
+        GHR_PATH: src/webmenu.sh
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

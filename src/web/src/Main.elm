@@ -25,12 +25,14 @@ type alias Model =
     , page : Page
     , navState : Navbar.State
     , modalVisibility : Modal.Visibility
+    , modalTitle : String
+    , modalBody : String
     }
 
 type Page
     = Home
     | GettingStarted
-    | Modules
+    | Games
     | NotFound
 
 
@@ -52,7 +54,7 @@ init flags url key =
             Navbar.initialState NavMsg
 
         ( model, urlCmd ) =
-            urlUpdate url { navKey = key, navState = navState, page = Home, modalVisibility= Modal.hidden }
+            urlUpdate url { navKey = key, navState = navState, page = Home, modalVisibility= Modal.hidden, modalTitle="", modalBody="" }
     in
         ( model, Cmd.batch [ urlCmd, navCmd ] )
 
@@ -64,7 +66,7 @@ type Msg
     | ClickedLink UrlRequest
     | NavMsg Navbar.State
     | CloseModal
-    | ShowModal
+    | ShowModal String String
 
 
 subscriptions : Model -> Sub Msg
@@ -97,8 +99,10 @@ update msg model =
             , Cmd.none
             )
 
-        ShowModal ->
-            ( { model | modalVisibility = Modal.shown }
+        ShowModal title body ->
+            ( { model | modalVisibility = Modal.shown
+                      , modalTitle = title
+                      , modalBody = body }
             , Cmd.none
             )
 
@@ -125,7 +129,7 @@ routeParser =
     UrlParser.oneOf
         [ UrlParser.map Home top
         , UrlParser.map GettingStarted (UrlParser.s "getting-started")
-        , UrlParser.map Modules (UrlParser.s "modules")
+        , UrlParser.map Games (UrlParser.s "modules")
         ]
 
 
@@ -145,15 +149,18 @@ view model =
 
 menu : Model -> Html Msg
 menu model =
-    Navbar.config NavMsg
-        |> Navbar.withAnimation
-        |> Navbar.container
-        |> Navbar.brand [ href "#" ] [ text "MiSTer WebMenu" ]
-        |> Navbar.items
-            [ Navbar.itemLink [ href "#getting-started" ] [ text "Getting started!!" ]
-            , Navbar.itemLink [ href "#modules" ] [ text "Modules" ]
-            ]
-        |> Navbar.view model.navState
+    div [ class "mb-4" ] [ 
+      Navbar.config NavMsg
+          |> Navbar.withAnimation
+          |> Navbar.container
+          |> Navbar.brand [ href "#" ] [ text "MiSTer" ]
+          |> Navbar.items
+              [ Navbar.itemLink [ href "#getting-started" ] [ text "Cores" ]
+              , Navbar.itemLink [ href "#modules" ] [ text "Games" ]
+              , Navbar.itemLink [ href "#modules" ] [ text "Settings" ]
+              ]
+          |> Navbar.view model.navState
+    ]
 
 
 mainContent : Model -> Html Msg
@@ -166,8 +173,8 @@ mainContent model =
             GettingStarted ->
                 pageGettingStarted model
 
-            Modules ->
-                pageModules model
+            Games ->
+                pageGames model
 
             NotFound ->
                 pageNotFound
@@ -175,8 +182,7 @@ mainContent model =
 
 pageHome : Model -> List (Html Msg)
 pageHome model =
-    [ h1 [] [ text "Games!" ]
-    , Grid.row []
+    [ Grid.row []
         [ Grid.col []
             [ Card.config [ Card.outlinePrimary ]
                 |> Card.headerH4 [] [ text "Getting started" ]
@@ -185,19 +191,19 @@ pageHome model =
                     , Block.custom <|
                         Button.linkButton
                             [ Button.primary, Button.attrs [ href "#getting-started" ] ]
-                            [ text "Start" ]
+                            [ text "Play" ]
                     ]
                 |> Card.view
             ]
         , Grid.col []
             [ Card.config [ Card.outlineDanger ]
-                |> Card.headerH4 [] [ text "Modules" ]
+                |> Card.headerH4 [] [ text "Games" ]
                 |> Card.block []
                     [ Block.text [] [ text "Check out the modules overview" ]
                     , Block.custom <|
                         Button.linkButton
                             [ Button.primary, Button.attrs [ href "#modules" ] ]
-                            [ text "Module" ]
+                            [ text "Game" ]
                     ]
                 |> Card.view
             ]
@@ -212,15 +218,15 @@ pageGettingStarted model =
         [ Button.success
         , Button.large
         , Button.block
-        , Button.attrs [ onClick ShowModal ]
+        , Button.attrs [ onClick (ShowModal "holi" "que ase") ]
         ]
         [ text "Click me" ]
     ]
 
 
-pageModules : Model -> List (Html Msg)
-pageModules model =
-    [ h1 [] [ text "Modules" ]
+pageGames : Model -> List (Html Msg)
+pageGames model =
+    [ h1 [] [ text "Games" ]
     , Listgroup.ul
         [ Listgroup.li [] [ text "Alert" ]
         , Listgroup.li [] [ text "Badge" ]
@@ -240,13 +246,13 @@ modal : Model -> Html Msg
 modal model =
     Modal.config CloseModal
         |> Modal.small
-        |> Modal.h4 [] [ text "Getting started ?" ]
+        |> Modal.h4 [] [ text model.modalTitle ]
         |> Modal.body []
             [ Grid.containerFluid []
                 [ Grid.row []
                     [ Grid.col
                         [ Col.xs6 ]
-                        [ text "Col 1" ]
+                        [ text model.modalBody ]
                     , Grid.col
                         [ Col.xs6 ]
                         [ text "Col 2" ]

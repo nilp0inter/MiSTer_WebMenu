@@ -12,6 +12,8 @@ import (
 )
 
 func main() {
+	fmt.Println("Starting MiSTer WebMenu!")
+
 	statikFS, err := fs.New()
 	if err != nil {
 		log.Fatal(err)
