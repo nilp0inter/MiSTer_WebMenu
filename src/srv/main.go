@@ -22,7 +22,7 @@ func main() {
 	// Serve the contents over HTTP.
 	http.HandleFunc("/api/hello", HelloServer)
 	http.Handle("/", http.FileServer(statikFS))
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":80", nil)
 }
 
 func HelloServer(w http.ResponseWriter, r *http.Request) {
