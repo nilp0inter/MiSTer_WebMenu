@@ -7,10 +7,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - name: Cache Nix Store
+      id: nix-store
+      uses: actions/cache@v1
+      with:
+        path: nix-store
+        key: ${{ runner.os }}-nix-store
     - name: Build binary
-      run: docker run -v `pwd`:/code -t nixos/nix:latest nix-shell -p gnumake --run "cd /code/src/ && make"
+      run: docker run -v `pwd`/nix-store:/nix -v `pwd`:/code -t nixos/nix:latest nix-shell -p gnumake --run "cd /code/src/ && make"
     - name: Upload Artifact
       uses: actions/upload-artifact@v2
       with:
-        # A file, directory or wildcard pattern that describes what to upload
+        name: MiSTer_WebMenu
         path: src/srv/MiSTer_WebMenu
