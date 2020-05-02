@@ -7,6 +7,7 @@ import Html.Events exposing (onClick)
 import Browser.Navigation as Navigation
 import Browser exposing (UrlRequest)
 import Url exposing (Url)
+import Url.Builder exposing (relative, string)
 import Url.Parser as UrlParser exposing ((</>), Parser, s, top)
 import Bootstrap.Navbar as Navbar
 import Bootstrap.Grid as Grid
@@ -126,7 +127,7 @@ update msg model =
 loadGame : String -> String -> Cmd Msg
 loadGame core game =
     Http.get
-      { url = apiRoot ++ "/api/run/" ++ core ++ "/" ++ game
+      { url = relative ["api", "run"] [ string "core" core, string "game" game ]
       , expect = Http.expectWhatever GameLoaded
       }
 
@@ -249,8 +250,8 @@ pageGettingStarted model =
 pageGames : Model -> List (Html Msg)
 pageGames model =
     [ h1 [] [ text "Games" ]
-    , gameLauncher "Game 1" "Game short description 1" "core1" "game1"
-    , gameLauncher "Game 2" "Game short description 2" "core2" "game2"
+    , gameLauncher "[NES] Contra (USA)" "Game short description 1" "NES_20200308.rbf" "/media/fat/NES/1 US - A-F/Contra (USA).nes"
+    , gameLauncher "[GAMEBOY] Batman - Return of the Joker" "Game short description 2" "Gameboy_20200331.rbf" "/media/fat/GAMEBOY/1 Game Boy/1 GB US - A-G/Batman - Return of the Joker (USA, Europe).gb"
     , gameLauncher "Game 3" "Game short description 3" "core3" "game3"
     ]
 

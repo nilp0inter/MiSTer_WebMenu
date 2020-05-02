@@ -6,6 +6,7 @@ BIN="/media/fat/WebMenu"
 
 cat <<-EOF
 	#!/usr/bin/env bash
+	killall WebMenu 2> /dev/null
 	[ -x "$BIN" ] && sha256sum -c <(echo "$HASH") < "$BIN" > /dev/null 2>&1 && ("$BIN" &) && exit 0
 	uudecode -o - "\$0" | xzcat -d -c > "$BIN" && chmod a+x "$BIN" && ("$BIN" &) && exit 0
 	echo "Something went wrong, run with 'bash -x' and report the error" >&2 && exit 1
