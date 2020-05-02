@@ -19,10 +19,23 @@ import Bootstrap.ListGroup as Listgroup
 import Bootstrap.Modal as Modal
 import Bootstrap.Utilities.Spacing as Spacing
 import Bootstrap.Text as Text
+import Bootstrap.Spinner as Spinner
+import Json.Decode as D
 
 
 -- apiRoot = "http://localhost:8080"
 apiRoot = ""
+
+type alias Core =
+    { filename : String
+    , codename : String
+    }
+
+decoder : D.Decoder Core
+decoder =
+  D.map2 Core
+    (D.field "filename" D.string)
+    (D.field "codename" D.string)
 
 type alias Flags =
     {}
@@ -35,12 +48,15 @@ type alias Model =
     , modalTitle : String
     , modalBody : String
     , modalAction : Msg
+    , cores : List Core
+    , waiting : Bool
+    , scanning : Bool
     }
 
 type Page
     = Home
     | GettingStarted
-    | Games
+    | CoresPage
     | NotFound
 
 
@@ -62,9 +78,9 @@ init flags url key =
             Navbar.initialState NavMsg
 
         ( model, urlCmd ) =
-            urlUpdate url { navKey = key, navState = navState, page = Home, modalVisibility= Modal.hidden, modalTitle="", modalBody="", modalAction = CloseModal }
+            urlUpdate url { navKey = key, navState = navState, page = Home, modalVisibility= Modal.hidden, modalTitle="", modalBody="", modalAction = CloseModal, cores=[], waiting=False, scanning=False }
     in
-        ( model, Cmd.batch [ urlCmd, navCmd ] )
+        ( model, Cmd.batch [ urlCmd, navCmd, loadCores ] )
 
 
 
@@ -76,6 +92,10 @@ type Msg
     | ShowModal String String Msg
     | LoadGame String String
     | GameLoaded (Result Http.Error ())
+    | SyncFinished (Result Http.Error ())
+    | LoadCores
+    | ScanCores
+    | GotCores (Result Http.Error (List Core))
 
 
 subscriptions : Model -> Sub Msg
@@ -122,6 +142,61 @@ update msg model =
         GameLoaded _ ->
             ( model, Cmd.none )
 
+        LoadCores ->
+            ( { model | waiting = True }, loadCores )
+
+        GotCores c ->
+            case c of
+                Ok cs -> ( { model | waiting = False, cores = cs }, Cmd.none )
+                Err e -> ( { model | waiting = False
+                                   , modalVisibility = Modal.shown
+                                   , modalTitle = "Error!"
+                                   , modalBody = errorToString e
+                                   , modalAction = CloseModal}, Cmd.none )
+
+        ScanCores ->
+            ( { model | waiting = model.waiting || not model.scanning }, if model.scanning then Cmd.none else syncCores )
+
+        SyncFinished c ->
+            case c of
+                Ok cs -> ( { model | waiting = False }, loadCores )
+                Err e -> ( { model | waiting = False
+                                   , modalVisibility = Modal.shown
+                                   , modalTitle = "Error!"
+                                   , modalBody = errorToString e
+                                   , modalAction = CloseModal}, Cmd.none )
+
+errorToString : Http.Error -> String
+errorToString error =
+    case error of
+        Http.BadUrl url ->
+            "The URL " ++ url ++ " was invalid"
+        Http.Timeout ->
+            "Unable to reach the server, try again"
+        Http.NetworkError ->
+            "Unable to reach the server, check your network connection"
+        Http.BadStatus 500 ->
+            "The server had a problem, try again later"
+        Http.BadStatus 400 ->
+            "Verify your information and try again"
+        Http.BadStatus _ ->
+            "Unknown error"
+        Http.BadBody errorMessage ->
+            errorMessage
+
+syncCores : Cmd Msg
+syncCores =
+    Http.get
+      { url = relative ["api", "cores", "scan"] [ ]
+      , expect = Http.expectWhatever SyncFinished
+      }
+
+loadCores : Cmd Msg
+loadCores =
+    Http.get
+      { url = relative ["cached", "cores.json"] [ ]
+      , expect = Http.expectJson GotCores (D.list decoder)
+      }
 
 
 loadGame : String -> String -> Cmd Msg
@@ -151,8 +226,8 @@ routeParser : Parser (Page -> a) a
 routeParser =
     UrlParser.oneOf
         [ UrlParser.map Home top
-        , UrlParser.map GettingStarted (UrlParser.s "getting-started")
-        , UrlParser.map Games (UrlParser.s "modules")
+        , UrlParser.map GettingStarted (UrlParser.s "games")
+        , UrlParser.map CoresPage (UrlParser.s "cores")
         ]
 
 
@@ -178,8 +253,9 @@ menu model =
           |> Navbar.container
           |> Navbar.brand [ href "#" ] [ text "MiSTer" ]
           |> Navbar.items
-              [ Navbar.itemLink [ href "#getting-started" ] [ text "Cores" ]
-              , Navbar.itemLink [ href "#modules" ] [ text "Games" ]
+              [ Navbar.itemLink [ ] (if model.waiting then [ Spinner.spinner [ ] [ ] ] else [])
+              , Navbar.itemLink [ href "#cores" ] [ text "Cores" ]
+              , Navbar.itemLink [ href "#games" ] [ text "Games" ]
               , Navbar.itemLink [ href "#modules" ] [ text "Settings" ]
               ]
           |> Navbar.view model.navState
@@ -196,8 +272,8 @@ mainContent model =
             GettingStarted ->
                 pageGettingStarted model
 
-            Games ->
-                pageGames model
+            CoresPage ->
+                pageCoresPage model
 
             NotFound ->
                 pageNotFound
@@ -213,7 +289,7 @@ pageHome model =
                     [ Block.text [] [ text "Getting started is real easy. Just click the start button." ]
                     , Block.custom <|
                         Button.linkButton
-                            [ Button.primary, Button.attrs [ href "#getting-started" ] ]
+                            [ Button.primary, Button.attrs [ href "#games" ] ]
                             [ text "Play" ]
                     ]
                 |> Card.view
@@ -225,7 +301,7 @@ pageHome model =
                     [ Block.text [] [ text "Check out the modules overview" ]
                     , Block.custom <|
                         Button.linkButton
-                            [ Button.primary, Button.attrs [ href "#modules" ] ]
+                            [ Button.primary, Button.attrs [ href "#cores" ] ]
                             [ text "Game" ]
                     ]
                 |> Card.view
@@ -241,19 +317,19 @@ pageGettingStarted model =
         [ Button.success
         , Button.large
         , Button.block
-        , Button.attrs [ onClick (ShowModal "Hi" "This is a test" CloseModal) ]
+        , Button.attrs [ onClick ScanCores ]
         ]
         [ text "Click me" ]
     ]
 
 
-pageGames : Model -> List (Html Msg)
-pageGames model =
-    [ h1 [] [ text "Games" ]
-    , gameLauncher "[NES] Contra (USA)" "Game short description 1" "NES_20200308.rbf" "/media/fat/NES/1 US - A-F/Contra (USA).nes"
-    , gameLauncher "[GAMEBOY] Batman - Return of the Joker" "Game short description 2" "Gameboy_20200331.rbf" "/media/fat/GAMEBOY/1 Game Boy/1 GB US - A-G/Batman - Return of the Joker (USA, Europe).gb"
-    , gameLauncher "Game 3" "Game short description 3" "core3" "game3"
-    ]
+pageCoresPage : Model -> List (Html Msg)
+pageCoresPage model =
+    [ h1 [] [ text "Cores" ]
+    ] ++ List.map toGameLauncher model.cores
+
+toGameLauncher : Core -> Html Msg
+toGameLauncher c = gameLauncher c.codename "" c.filename ""
 
 gameLauncher : String -> String -> String -> String -> Html Msg
 gameLauncher title body core game =
@@ -270,7 +346,7 @@ gameLauncher title body core game =
 pageNotFound : List (Html Msg)
 pageNotFound =
     [ h1 [] [ text "Not found" ]
-    , text "SOrry couldn't find that page"
+    , text "Sorry couldn't find that page"
     ]
 
 

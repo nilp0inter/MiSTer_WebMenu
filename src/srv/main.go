@@ -1,12 +1,18 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	pathlib "path"
+	"path/filepath"
+	"regexp"
 	"syscall"
 	"time"
 
@@ -73,6 +79,52 @@ type Game struct {
 	Game string
 }
 
+type Core struct {
+	Path     string `json:"path"`
+	Filename string `json:"filename"`
+	Codename string `json:"codename"`
+	Codedate string `json:"codedate"`
+	Ctime    int64  `json:"ctime"`
+	MD5      string `json:"md5"`
+}
+
+func scanCore(path string) (Core, error) {
+	var c Core
+
+	// Path
+	c.Path = path
+	fi, err := os.Stat(path)
+	if err != nil {
+		return c, err
+	}
+	c.Ctime = fi.ModTime().Unix()
+
+	// MD5
+	f, err := os.Open(path)
+	if err != nil {
+		return c, err
+	}
+	defer f.Close()
+
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return c, err
+	}
+	c.MD5 = fmt.Sprintf("%x", h.Sum(nil))
+
+	// NAME
+	c.Filename = pathlib.Base(path)
+
+	re := regexp.MustCompile(`^([^_]+)_(\d{8})[^\.]*\.rbf$`)
+	matches := re.FindStringSubmatch(c.Filename)
+	if matches != nil {
+		c.Codename = string(matches[1])
+		c.Codedate = string(matches[2])
+	}
+
+	return c, nil
+}
+
 func reloadMiSTer() {
 	pss, err := ps.Processes()
 	if err != nil {
@@ -115,10 +167,15 @@ func gameLauncher(c chan Game) {
 	}
 }
 
+func createCache() {
+	os.MkdirAll("/media/fat/cache/WebMenu", os.ModePerm)
+}
+
 func main() {
 	msgs := make(chan Game)
 
 	fmt.Println("Starting MiSTer WebMenu!")
+	createCache()
 	umountConfig()
 	patchConfig()
 	go gameLauncher(msgs)
@@ -131,18 +188,52 @@ func main() {
 	// Serve the contents over HTTP.
 	r := mux.NewRouter()
 	r.HandleFunc("/api/run", BuildRunCoreWithGame(msgs))
+	r.HandleFunc("/api/cores/scan", ScanForCores)
+	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir("/media/fat/cache/WebMenu"))))
 	r.PathPrefix("/").Handler(http.FileServer(statikFS))
 
 	srv := &http.Server{
 		Handler: r,
 		Addr:    "0.0.0.0:80",
 		// Good practice: enforce timeouts for servers you create!
-		WriteTimeout: 15 * time.Second,
-		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 90 * time.Second,
+		ReadTimeout:  90 * time.Second,
 	}
 
 	log.Fatal(srv.ListenAndServe())
 
+}
+
+func ScanForCores(w http.ResponseWriter, r *http.Request) {
+	var cores []Core
+	paths := []string{
+		"/media/fat/_*/**/*.rbf",
+		"/media/fat/_*/*.rbf"}
+
+	for _, p := range paths {
+		matches, err := filepath.Glob(p)
+		if err != nil {
+			log.Fatalf("Error scanning cores: %v", err)
+		}
+		for _, m := range matches {
+			c, err := scanCore(m)
+			if err != nil {
+				log.Println(err)
+			} else {
+				cores = append(cores, c)
+			}
+		}
+	}
+
+	b, err := json.Marshal(cores)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = ioutil.WriteFile("/media/fat/cache/WebMenu/cores.json", b, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func BuildRunCoreWithGame(c chan Game) func(http.ResponseWriter, *http.Request) {
