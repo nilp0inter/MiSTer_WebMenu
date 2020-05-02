@@ -8,7 +8,7 @@ import (
 
 	"net/http"
 
-	_ "github.com/nilp0inter/MiSTer_WebMenu/statik" // TODO: Replace with the absolute import path
+	_ "github.com/nilp0inter/MiSTer_WebMenu/statik"
 )
 
 func main() {
