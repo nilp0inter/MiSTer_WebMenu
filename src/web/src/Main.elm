@@ -1,6 +1,7 @@
 module Main exposing (main)
 
 import Html exposing (..)
+import Http
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick)
 import Browser.Navigation as Navigation
@@ -15,7 +16,12 @@ import Bootstrap.Card.Block as Block
 import Bootstrap.Button as Button
 import Bootstrap.ListGroup as Listgroup
 import Bootstrap.Modal as Modal
+import Bootstrap.Utilities.Spacing as Spacing
+import Bootstrap.Text as Text
 
+
+-- apiRoot = "http://localhost:8080"
+apiRoot = ""
 
 type alias Flags =
     {}
@@ -27,6 +33,7 @@ type alias Model =
     , modalVisibility : Modal.Visibility
     , modalTitle : String
     , modalBody : String
+    , modalAction : Msg
     }
 
 type Page
@@ -54,10 +61,9 @@ init flags url key =
             Navbar.initialState NavMsg
 
         ( model, urlCmd ) =
-            urlUpdate url { navKey = key, navState = navState, page = Home, modalVisibility= Modal.hidden, modalTitle="", modalBody="" }
+            urlUpdate url { navKey = key, navState = navState, page = Home, modalVisibility= Modal.hidden, modalTitle="", modalBody="", modalAction = CloseModal }
     in
         ( model, Cmd.batch [ urlCmd, navCmd ] )
-
 
 
 
@@ -66,7 +72,9 @@ type Msg
     | ClickedLink UrlRequest
     | NavMsg Navbar.State
     | CloseModal
-    | ShowModal String String
+    | ShowModal String String Msg
+    | LoadGame String String
+    | GameLoaded (Result Http.Error ())
 
 
 subscriptions : Model -> Sub Msg
@@ -99,14 +107,28 @@ update msg model =
             , Cmd.none
             )
 
-        ShowModal title body ->
+        ShowModal title body action ->
             ( { model | modalVisibility = Modal.shown
                       , modalTitle = title
-                      , modalBody = body }
+                      , modalBody = body
+                      , modalAction = action }
             , Cmd.none
             )
 
+        LoadGame core game ->
+            ( { model | modalVisibility = Modal.hidden }, loadGame core game )
 
+        GameLoaded _ ->
+            ( model, Cmd.none )
+
+
+
+loadGame : String -> String -> Cmd Msg
+loadGame core game =
+    Http.get
+      { url = apiRoot ++ "/api/run/" ++ core ++ "/" ++ game
+      , expect = Http.expectWhatever GameLoaded
+      }
 
 urlUpdate : Url -> Model -> ( Model, Cmd Msg )
 urlUpdate url model =
@@ -218,7 +240,7 @@ pageGettingStarted model =
         [ Button.success
         , Button.large
         , Button.block
-        , Button.attrs [ onClick (ShowModal "holi" "que ase") ]
+        , Button.attrs [ onClick (ShowModal "Hi" "This is a test" CloseModal) ]
         ]
         [ text "Click me" ]
     ]
@@ -227,13 +249,22 @@ pageGettingStarted model =
 pageGames : Model -> List (Html Msg)
 pageGames model =
     [ h1 [] [ text "Games" ]
-    , Listgroup.ul
-        [ Listgroup.li [] [ text "Alert" ]
-        , Listgroup.li [] [ text "Badge" ]
-        , Listgroup.li [] [ text "Card" ]
-        ]
+    , gameLauncher "Game 1" "Game short description 1" "core1" "game1"
+    , gameLauncher "Game 2" "Game short description 2" "core2" "game2"
+    , gameLauncher "Game 3" "Game short description 3" "core3" "game3"
     ]
 
+gameLauncher : String -> String -> String -> String -> Html Msg
+gameLauncher title body core game =
+    Card.config [ Card.outlineSecondary, Card.attrs [ Spacing.mb3 ] ]
+        |> Card.header [] [ text title ]
+        |> Card.block [  ] [ Block.quote [] [ p [] [ text body ] ]
+                           , Block.custom <|
+                              Button.button [ Button.primary
+                                            , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game)) ] [ text "Play!" ]
+                           ]
+        |> Card.view
+    
 
 pageNotFound : List (Html Msg)
 pageNotFound =
@@ -251,11 +282,14 @@ modal model =
             [ Grid.containerFluid []
                 [ Grid.row []
                     [ Grid.col
-                        [ Col.xs6 ]
+                        [  ]
                         [ text model.modalBody ]
-                    , Grid.col
-                        [ Col.xs6 ]
-                        [ text "Col 2" ]
+                    ]
+                , Grid.row []
+                    [ Grid.col
+                        [  ]
+                        [ Button.button [ Button.warning
+                                        , Button.onClick model.modalAction ] [ text "Proceed" ] ]
                     ]
                 ]
             ]
