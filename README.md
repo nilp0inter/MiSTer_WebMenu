@@ -1,6 +1,6 @@
 # MiSTer_WebMenu
 
-An external web browser based MiSTer frontend
+A web interface for MiSTer
 
 ## Instructions
 
