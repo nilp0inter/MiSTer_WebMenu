@@ -1,0 +1,20 @@
+[
+  {
+    "name": "Sega Genesis",
+    "shortname": "Genesis",
+    "description": "The Sega Genesis, known as the Mega Drive outside North America, is a 16-bit home video game console developed and sold by Sega.",
+    "codename": [
+      "Genesis"
+    ],
+    "release": 1988
+  },
+  {
+    "name": "Nintendo Entertainment System",
+    "shortname": "NES",
+    "description": "The Nintendo Entertainment System (NES) is an 8-bit third-generation home video game console produced, released, and marketed by Nintendo.",
+    "codename": [
+      "NES"
+    ],
+    "release": 1985
+  }
+]
