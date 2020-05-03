@@ -4,7 +4,7 @@ Control your MiSTer device from a confortable web interface
 
 ## Project Status
 
-The project is in early alpha, the implemented features should work for standard MiSTer setups, but the code is by far optimal.
+The project is in early alpha, the implemented features should work for standard MiSTer setups, but the code is far from being optimal.
 
 I am not accepting new code pull requests at this stage, but I'd appreciate if you can:
 
