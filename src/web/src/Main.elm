@@ -7,7 +7,7 @@ import Html.Events exposing (onClick, onInput)
 import Browser.Navigation as Navigation
 import Browser exposing (UrlRequest)
 import Url exposing (Url)
-import Url.Builder exposing (relative, crossOrigin, string)
+import Url.Builder exposing (relative, crossOrigin, string, int)
 import Url.Parser as UrlParser exposing ((</>), Parser, s, top)
 import Bootstrap.Navbar as Navbar
 import Bootstrap.General.HAlign as HAlign
@@ -106,9 +106,10 @@ type alias Model =
     }
 
 type Page
-    = Home
+    = AboutPage
     | CoresPage
-    | NotImplementedPage String
+    | SettingsPage
+    | NotImplementedPage String String
     | NotFound
 
 
@@ -134,7 +135,7 @@ init flags url key =
                           , coreFilter = Nothing
                           , navState = navState
                           , tabState = Tab.initialState
-                          , page = Home
+                          , page = AboutPage
                           , modalVisibility = Modal.hidden
                           , modalTitle = ""
                           , modalBody = ""
@@ -164,7 +165,7 @@ type Msg
     | SyncFinished (Result Http.Error ())
 
     | LoadCores
-    | ScanCores
+    | ScanCores Bool
     | GotCores (Result Http.Error (Maybe (List Core)))
     | FilterCores String
 
@@ -234,9 +235,9 @@ update msg model =
                                    , modalBody = errorToString e
                                    , modalAction = CloseModal}, Cmd.none )
 
-        ScanCores ->
+        ScanCores force ->
             ( { model | scanning = True
-                      , waiting = model.waiting + 1 }, if model.scanning then Cmd.none else syncCores )
+                      , waiting = model.waiting + 1 }, if model.scanning then Cmd.none else (syncCores force) )
 
         SyncFinished c ->
             case c of
@@ -287,10 +288,10 @@ errorToString error =
         Http.BadBody errorMessage ->
             errorMessage
 
-syncCores : Cmd Msg
-syncCores =
+syncCores : Bool -> Cmd Msg
+syncCores force =
     Http.get
-      { url = relative ["api", "cores", "scan"] [ ]
+      { url = relative ["api", "cores", "scan"] [ int "force" (if force then 1 else 0) ]
       , expect = Http.expectWhatever SyncFinished
       }
 
@@ -322,7 +323,8 @@ urlUpdate url model =
             ( { model | page = NotFound }, Cmd.none )
 
         Just route ->
-            ( { model | page = route }, Cmd.none )
+            ( { model | page = route
+                      , coreFilter = Nothing }, Cmd.none )
 
 
 decode : Url -> Maybe Page
@@ -334,12 +336,12 @@ decode url =
 routeParser : Parser (Page -> a) a
 routeParser =
     UrlParser.oneOf
-        [ UrlParser.map Home top
-        , UrlParser.map (NotImplementedPage "Games") (UrlParser.s "games")
+        [ UrlParser.map AboutPage top
+        , UrlParser.map (NotImplementedPage "Games" "Search your game collection and play any rom with a single click.") (UrlParser.s "games")
         , UrlParser.map CoresPage (UrlParser.s "cores")
-        , UrlParser.map (NotImplementedPage "Community") (UrlParser.s "community")
-        , UrlParser.map (NotImplementedPage "Settings") (UrlParser.s "settings")
-        , UrlParser.map (NotImplementedPage "About") (UrlParser.s "about")
+        , UrlParser.map (NotImplementedPage "Community" "View MiSTer news, and receive community updates and relevant content.") (UrlParser.s "community")
+        , UrlParser.map SettingsPage (UrlParser.s "settings")
+        , UrlParser.map AboutPage (UrlParser.s "about")
         ]
 
 
@@ -381,7 +383,7 @@ menu model =
       Navbar.config NavMsg
           |> Navbar.withAnimation
           |> Navbar.container
-          |> Navbar.brand [ href "#" ] [ text "MiSTer" ]
+          |> Navbar.brand [ href "#about" ] [ text "MiSTer" ]
           |> Navbar.items
               [ Navbar.itemLink [ href "#cores" ] [ text "Cores" ]
               , Navbar.itemLink [ href "#games" ] [ text "Games" ]
@@ -400,30 +402,61 @@ mainContent : Model -> Html Msg
 mainContent model =
     Grid.container [] ([messages model] ++
         case model.page of
-            Home ->
-                pageHome model
+            AboutPage ->
+                pageAboutPage model
 
             CoresPage ->
                 pageCoresPage model
 
-            NotImplementedPage title ->
-                pageNotImplemented title
+            SettingsPage ->
+                pageSettingsPage model
+
+            NotImplementedPage title description ->
+                pageNotImplemented title description
 
             NotFound ->
                 pageNotFound
     )
 
-pageHome : Model -> List (Html Msg)
-pageHome model =
+pageSettingsPage : Model -> List (Html Msg)
+pageSettingsPage model =
+    [ h1 [] [ text "Settings" ]
+    , Card.config [ Card.outlineLight ]
+        |> Card.block []
+            [ Block.titleH2 [] [ text "Cores" ]
+            , Block.text [] [ p [] [text "Click on 'Scan now' to start scanning for available cores in your MiSTer."],
+                              p [] [text "This may take a couple of minutes depending on the number of files in your SD card."] ]
+            , Block.custom <|
+                Button.button [ Button.disabled model.scanning
+                              , Button.primary
+                              , Button.onClick (ScanCores True)
+                 ] [ text "Scan now" ]
+            ]
+        |> Card.view ]
+
+        
+
+pageAboutPage : Model -> List (Html Msg)
+pageAboutPage model =
     [ Grid.row []
         [ Grid.col []
-            [ p [] [ text "Welcome..." ] ]
+            [ p [] [ text "Welcome to "
+                   , strong [ ] [ text "MiSTer WebMenu" ]
+                   , text ", a web interface for the MiSTer device."]
+            , p [] [ text "This project is an early alpha, so expect some crashes here and there.  Please, report any crashes and/or desired feature through the project "
+                   , a [ href "https://github.com/nilp0inter/MiSTer_WebMenu/issues"
+                       , target "_blank" ] [ text "GitHub Issues" ]
+                   , text " page."
+                   ]
+            , p [] [ text "Enjoy 😊" ]
+            ]
         ]
     ]
 
-pageNotImplemented : String -> List (Html Msg)
-pageNotImplemented title = 
+pageNotImplemented : String -> String -> List (Html Msg)
+pageNotImplemented title description = 
     [ h1 [] [ text title ]
+    , p [] [ text description ]
     , Card.config [ Card.outlineInfo ]
         |> Card.block []
             [ Block.titleH3 [] [ text "Not implemented yet" ]
@@ -483,6 +516,7 @@ pageCoresPage model =
                         Just _ -> Just (not (List.isEmpty filtered))
             in
                 [ coreSearch matches
+                , p [] [ text "Search your core collection and launch individual cores with a click." ]
                 , coreTabs model filtered
                 ]
 
@@ -496,7 +530,7 @@ coreSearch match =
                 Just True -> [ Input.success ]
                 Just False -> [ Input.danger ]
     in
-        Grid.container [ class "mb-4" ]
+        Grid.container [ class "mb-2" ]
             [ Grid.row []
                 [ Grid.col [ Col.sm8 ] [ h1 [] [ text "Cores" ] ]
                 , Grid.col [ Col.sm4
@@ -570,7 +604,7 @@ coreSyncButton = [
                               p [] [text "This may take a couple of minutes depending on the number of files in your SD card."] ]
             , Block.custom <|
                 Button.button [ Button.primary
-                              , Button.onClick ScanCores
+                              , Button.onClick (ScanCores False)
                  ] [ text "Scan now" ]
             ]
         |> Card.view
@@ -588,7 +622,7 @@ gameLauncher title body core game =
         |> Card.header [] [ text title ]
         |> Card.imgTop [ src (
                case (get title coreImages) of
-                   Nothing -> ""
+                   Nothing -> "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/1024px-No_image_available.svg.png"
                    Just s -> s ) ] []
         |> Card.block [  ] [ Block.quote [] [ p [] [ text body ] ]
                            ]
