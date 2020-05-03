@@ -10,6 +10,7 @@ import Url exposing (Url)
 import Url.Builder exposing (relative, string)
 import Url.Parser as UrlParser exposing ((</>), Parser, s, top)
 import Bootstrap.Navbar as Navbar
+import Bootstrap.Alert as Alert
 import Bootstrap.Grid as Grid
 import Bootstrap.Grid.Col as Col
 import Bootstrap.Card as Card
@@ -24,6 +25,13 @@ import Json.Decode as D
 
 
 -- apiRoot = "http://localhost:8080"
+type alias Panel =
+    { title : String
+    , text : String
+    , style : String
+    , visibility : Alert.Visibility
+    }
+
 apiRoot = ""
 
 type alias Core =
@@ -43,12 +51,16 @@ type alias Flags =
 type alias Model =
     { navKey : Navigation.Key
     , page : Page
+
     , navState : Navbar.State
+
     , modalVisibility : Modal.Visibility
     , modalTitle : String
     , modalBody : String
     , modalAction : Msg
-    , cores : List Core
+
+    , messages : (List Panel)
+    , cores : Maybe (List Core)
     , waiting : Bool
     , scanning : Bool
     }
@@ -78,7 +90,18 @@ init flags url key =
             Navbar.initialState NavMsg
 
         ( model, urlCmd ) =
-            urlUpdate url { navKey = key, navState = navState, page = Home, modalVisibility= Modal.hidden, modalTitle="", modalBody="", modalAction = CloseModal, cores=[], waiting=False, scanning=False }
+            urlUpdate url { navKey = key
+                          , navState = navState
+                          , page = Home
+                          , modalVisibility = Modal.hidden
+                          , modalTitle = ""
+                          , modalBody = ""
+                          , modalAction = CloseModal
+                          , cores = Nothing
+                          , waiting = False
+                          , scanning = False
+                          , messages = [] }
+    
     in
         ( model, Cmd.batch [ urlCmd, navCmd, loadCores ] )
 
@@ -95,7 +118,8 @@ type Msg
     | SyncFinished (Result Http.Error ())
     | LoadCores
     | ScanCores
-    | GotCores (Result Http.Error (List Core))
+    | GotCores (Result Http.Error (Maybe (List Core)))
+    | ClosePanel Int Alert.Visibility
 
 
 subscriptions : Model -> Sub Msg
@@ -148,6 +172,7 @@ update msg model =
         GotCores c ->
             case c of
                 Ok cs -> ( { model | waiting = False, cores = cs }, Cmd.none )
+                Err (Http.BadStatus 404) -> ( { model | waiting = False, cores = Nothing }, Cmd.none )
                 Err e -> ( { model | waiting = False
                                    , modalVisibility = Modal.shown
                                    , modalTitle = "Error!"
@@ -155,16 +180,27 @@ update msg model =
                                    , modalAction = CloseModal}, Cmd.none )
 
         ScanCores ->
-            ( { model | waiting = model.waiting || not model.scanning }, if model.scanning then Cmd.none else syncCores )
+            ( { model | scanning = True }, if model.scanning then Cmd.none else syncCores )
 
         SyncFinished c ->
             case c of
-                Ok cs -> ( { model | waiting = False }, loadCores )
-                Err e -> ( { model | waiting = False
-                                   , modalVisibility = Modal.shown
-                                   , modalTitle = "Error!"
-                                   , modalBody = errorToString e
-                                   , modalAction = CloseModal}, Cmd.none )
+                Ok cs -> ( { model | scanning = False }, loadCores )
+                Err e -> ( { model | scanning = False
+                                   , messages = (newPanel "Error scanning cores" (errorToString e)) :: model.messages }, Cmd.none )
+
+        ClosePanel id vis ->
+            ( { model | messages = (List.indexedMap (changePanelVisibility vis id) model.messages) }, Cmd.none )
+
+
+
+newPanel : String -> String -> Panel
+newPanel title text = { title = title
+                      , text = text
+                      , style = "info"
+                      , visibility = Alert.shown }
+
+changePanelVisibility : Alert.Visibility -> Int -> Int -> Panel -> Panel
+changePanelVisibility vis id current panel = if current == id then { panel | visibility = vis } else panel
 
 errorToString : Http.Error -> String
 errorToString error =
@@ -195,7 +231,7 @@ loadCores : Cmd Msg
 loadCores =
     Http.get
       { url = relative ["cached", "cores.json"] [ ]
-      , expect = Http.expectJson GotCores (D.list decoder)
+      , expect = Http.expectJson GotCores (D.nullable (D.list decoder))
       }
 
 
@@ -243,7 +279,22 @@ view model =
         ]
     }
 
+messages : Model -> Html Msg
+messages model = 
+    div [ class "mb-4" ] [
+        Grid.row []
+            [ Grid.col [] (List.indexedMap showPanel model.messages) ] ]
 
+showPanel : Int -> Panel -> Html Msg
+showPanel id panel = 
+    Alert.config
+        |> Alert.dismissableWithAnimation (ClosePanel id)
+        |> Alert.info
+        |> Alert.children
+            [ Alert.h4 [] [ text panel.title ]
+            , p [] [ text panel.text ]
+            ]
+        |> Alert.view panel.visibility
 
 menu : Model -> Html Msg
 menu model =
@@ -264,7 +315,7 @@ menu model =
 
 mainContent : Model -> Html Msg
 mainContent model =
-    Grid.container [] <|
+    Grid.container [] ([messages model] ++
         case model.page of
             Home ->
                 pageHome model
@@ -277,7 +328,7 @@ mainContent model =
 
             NotFound ->
                 pageNotFound
-
+    )
 
 pageHome : Model -> List (Html Msg)
 pageHome model =
@@ -325,8 +376,45 @@ pageGettingStarted model =
 
 pageCoresPage : Model -> List (Html Msg)
 pageCoresPage model =
-    [ h1 [] [ text "Cores" ]
-    ] ++ List.map toGameLauncher model.cores
+    case model.cores of
+        Nothing ->
+            case model.scanning of
+                True -> waitForSync
+                False -> coreSyncButton
+        Just cs -> coreSelector cs
+
+coreSelector : List Core -> List (Html Msg)
+coreSelector cs = List.map toGameLauncher cs
+
+waitForSync : List (Html Msg)
+waitForSync = [
+    Card.config [ Card.primary
+                , Card.textColor Text.white ]
+        |> Card.block []
+            [ Block.titleH4 [] [ text "Please wait..." ]
+            , Block.text [] [ p [] [text "WebMenu is looking for cores in your MiSTer device."]
+                            , p [] [text "This may take a couple of minutes depending on the number of files in your SD card."] ]
+            , Block.custom <|
+                    Spinner.spinner [ ] [ ]
+            ]
+        |> Card.view
+    ]
+
+coreSyncButton : List (Html Msg)
+coreSyncButton = [
+    Card.config []
+        |> Card.block []
+            [ Block.titleH4 [] [ text "No cores yet" ]
+            , Block.text [] [ p [] [text "Click on 'Scan now' to start scanning for available cores in your MiSTer."],
+                              p [] [text "This may take a couple of minutes depending on the number of files in your SD card."] ]
+            , Block.custom <|
+                Button.button [ Button.primary
+                              , Button.onClick ScanCores
+                 ] [ text "Scan now" ]
+            ]
+        |> Card.view
+    ]
+
 
 toGameLauncher : Core -> Html Msg
 toGameLauncher c = gameLauncher c.codename "" c.filename ""
