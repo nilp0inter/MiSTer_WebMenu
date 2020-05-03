@@ -2,6 +2,8 @@
 
 Control your MiSTer device from a confortable web interface
 
+![Screenshot](/assets/capture.gif)
+
 ## Project Status
 
 The project is in early alpha, the implemented features should work for standard MiSTer setups, but the code is far from being optimal.
