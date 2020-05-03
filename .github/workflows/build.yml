@@ -4,6 +4,8 @@ on:
     paths:
       - "src/**"
   push:
+    paths:
+      - "src/**"
 jobs:
   build:
     runs-on: ubuntu-latest
