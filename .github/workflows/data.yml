@@ -3,9 +3,11 @@ on:
   pull_request:
     paths:
       - "data/**"
+      - ".github/workflows/data.yml"
   push:
     paths:
       - "data/**"
+      - ".github/workflows/data.yml"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,14 +18,14 @@ jobs:
     - name: Upload Artifact
       uses: actions/upload-artifact@v2
       with:
-        name: plaforms.json
-        path: static/plaforms.json
+        name: platforms.json
+        path: static/platforms.json
     - name: Git Auto Commit
       uses: stefanzweifel/git-auto-commit-action@v2.5.0
       with:
         # Commit message
-        commit_message: Rebuild "plaforms.json"
+        commit_message: Rebuild "platforms.json"
         branch: master
-        file_pattern: static/plaforms.json
+        file_pattern: static/platforms.json
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

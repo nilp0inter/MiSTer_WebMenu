@@ -3,9 +3,11 @@ on:
   pull_request:
     paths:
       - "src/**"
+      - ".github/workflows/build.yml"
   push:
     paths:
       - "src/**"
+      - ".github/workflows/build.yml"
 jobs:
   build:
     runs-on: ubuntu-latest
