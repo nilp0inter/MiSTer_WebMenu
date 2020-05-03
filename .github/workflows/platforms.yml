@@ -1,0 +1,29 @@
+name: "Build"
+on:
+  pull_request:
+    paths:
+      - "data/plaforms/**"
+  push:
+    paths:
+      - "data/plaforms/**"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build binary
+      run: docker run -v `pwd`:/code -t nixos/nix:latest nix-shell -p yq --run "yq . /code/data/platforms/*.yml | jq --slurp > /code/static/platforms.json"
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: plaforms.json
+        path: static/plaforms.json
+    - name: Git Auto Commit
+      uses: stefanzweifel/git-auto-commit-action@v2.5.0
+      with:
+        # Commit message
+        commit_message: Rebuild "plaforms.json"
+        branch: master
+        file_pattern: static/plaforms.json
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
