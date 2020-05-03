@@ -22,13 +22,13 @@ import Bootstrap.Utilities.Spacing as Spacing
 import Bootstrap.Text as Text
 import Bootstrap.Spinner as Spinner
 import Json.Decode as D
+import Dict exposing (Dict, get)
 
 
 type PanelType =
       Info
     | Error
 
--- apiRoot = "http://localhost:8080"
 type alias Panel =
     { title : String
     , text : String
@@ -37,6 +37,13 @@ type alias Panel =
     }
 
 apiRoot = ""
+
+coreImages : Dict String String
+coreImages  =
+    Dict.fromList
+        [ ("NES", "https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/NES-Console-Set.jpg/440px-NES-Console-Set.jpg")
+        , ("Genesis", "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Sega-Mega-Drive-JP-Mk1-Console-Set.jpg/500px-Sega-Mega-Drive-JP-Mk1-Console-Set.jpg")
+        ]
 
 type alias Core =
     { filename : String
@@ -373,11 +380,11 @@ pageCoresPage model =
             case model.scanning of
                 True -> waitForSync
                 False -> coreSyncButton
-        Just cs -> coreSelector cs
+        Just cs -> [ coreSelector cs ]
 
 
-coreSelector : List Core -> List (Html Msg)
-coreSelector cs = List.map toGameLauncher cs
+coreSelector : List Core -> Html Msg
+coreSelector cs = Card.columns (List.map toGameLauncher cs)
 
 waitForSync : List (Html Msg)
 waitForSync = [
@@ -409,19 +416,23 @@ coreSyncButton = [
     ]
 
 
-toGameLauncher : Core -> Html Msg
+toGameLauncher : Core -> (Card.Config Msg)
 toGameLauncher c = gameLauncher c.codename "" c.filename ""
 
-gameLauncher : String -> String -> String -> String -> Html Msg
+gameLauncher : String -> String -> String -> String -> (Card.Config Msg)
 gameLauncher title body core game =
-    Card.config [ Card.outlineSecondary, Card.attrs [ Spacing.mb3 ] ]
+    Card.config [ Card.outlineSecondary
+                , Card.attrs [ ]
+                , Card.align Text.alignXsCenter ]
         |> Card.header [] [ text title ]
+        |> Card.imgTop [ src (
+               case (get title coreImages) of
+                   Nothing -> ""
+                   Just s -> s ) ] []
         |> Card.block [  ] [ Block.quote [] [ p [] [ text body ] ]
-                           , Block.custom <|
-                              Button.button [ Button.primary
-                                            , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game)) ] [ text "Play!" ]
                            ]
-        |> Card.view
+        |> Card.footer [ ] [ Button.button [ Button.primary
+                                          , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game)) ] [ text "Play!" ]]
     
 
 pageNotFound : List (Html Msg)
