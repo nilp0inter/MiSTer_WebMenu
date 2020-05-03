@@ -1,11 +1,11 @@
-name: "Build"
+name: "Data"
 on:
   pull_request:
     paths:
-      - "data/plaforms/**"
+      - "data/**"
   push:
     paths:
-      - "data/plaforms/**"
+      - "data/**"
 jobs:
   build:
     runs-on: ubuntu-latest
