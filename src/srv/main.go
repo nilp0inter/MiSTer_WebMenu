@@ -219,7 +219,10 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
 
-	if _, err := os.Stat("file-exists.go"); err != nil {
+	force, ok := r.URL.Query()["force"]
+	doForce := ok && force[0] == "1"
+
+	if _, err := os.Stat("/media/fat/cache/WebMenu/cores.json"); doForce || err != nil {
 		// File doesn't exist
 		var cores []Core
 		paths := []string{
