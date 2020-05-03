@@ -24,11 +24,15 @@ import Bootstrap.Spinner as Spinner
 import Json.Decode as D
 
 
+type PanelType =
+      Info
+    | Error
+
 -- apiRoot = "http://localhost:8080"
 type alias Panel =
     { title : String
     , text : String
-    , style : String
+    , style : PanelType
     , visibility : Alert.Visibility
     }
 
@@ -61,14 +65,14 @@ type alias Model =
 
     , messages : (List Panel)
     , cores : Maybe (List Core)
-    , waiting : Bool
+    , waiting : Int
     , scanning : Bool
     }
 
 type Page
     = Home
-    | GettingStarted
     | CoresPage
+    | NotImplementedPage String
     | NotFound
 
 
@@ -98,7 +102,7 @@ init flags url key =
                           , modalBody = ""
                           , modalAction = CloseModal
                           , cores = Nothing
-                          , waiting = False
+                          , waiting = 1
                           , scanning = False
                           , messages = [] }
     
@@ -167,37 +171,40 @@ update msg model =
             ( model, Cmd.none )
 
         LoadCores ->
-            ( { model | waiting = True }, loadCores )
+            ( { model | waiting = model.waiting + 1 }, loadCores )
 
         GotCores c ->
             case c of
-                Ok cs -> ( { model | waiting = False, cores = cs }, Cmd.none )
-                Err (Http.BadStatus 404) -> ( { model | waiting = False, cores = Nothing }, Cmd.none )
-                Err e -> ( { model | waiting = False
+                Ok cs -> ( { model | waiting = model.waiting - 1, cores = cs }, Cmd.none )
+                Err (Http.BadStatus 404) -> ( { model | waiting = model.waiting-1, cores = Nothing }, Cmd.none )
+                Err e -> ( { model | waiting = model.waiting - 1
                                    , modalVisibility = Modal.shown
                                    , modalTitle = "Error!"
                                    , modalBody = errorToString e
                                    , modalAction = CloseModal}, Cmd.none )
 
         ScanCores ->
-            ( { model | scanning = True }, if model.scanning then Cmd.none else syncCores )
+            ( { model | scanning = True
+                      , waiting = model.waiting + 1 }, if model.scanning then Cmd.none else syncCores )
 
         SyncFinished c ->
             case c of
                 Ok cs -> ( { model | scanning = False }, loadCores )
                 Err e -> ( { model | scanning = False
-                                   , messages = (newPanel "Error scanning cores" (errorToString e)) :: model.messages }, Cmd.none )
+                                   , waiting = model.waiting - 1 
+                                   , messages = (newPanel Error "Error scanning cores" (errorToString e)) :: model.messages }, Cmd.none )
 
         ClosePanel id vis ->
             ( { model | messages = (List.indexedMap (changePanelVisibility vis id) model.messages) }, Cmd.none )
 
 
 
-newPanel : String -> String -> Panel
-newPanel title text = { title = title
-                      , text = text
-                      , style = "info"
-                      , visibility = Alert.shown }
+newPanel : PanelType -> String -> String -> Panel
+newPanel ptype title text =
+    { title = title
+    , text = text
+    , style = ptype 
+    , visibility = Alert.shown }
 
 changePanelVisibility : Alert.Visibility -> Int -> Int -> Panel -> Panel
 changePanelVisibility vis id current panel = if current == id then { panel | visibility = vis } else panel
@@ -262,8 +269,11 @@ routeParser : Parser (Page -> a) a
 routeParser =
     UrlParser.oneOf
         [ UrlParser.map Home top
-        , UrlParser.map GettingStarted (UrlParser.s "games")
+        , UrlParser.map (NotImplementedPage "Games") (UrlParser.s "games")
         , UrlParser.map CoresPage (UrlParser.s "cores")
+        , UrlParser.map (NotImplementedPage "Community") (UrlParser.s "community")
+        , UrlParser.map (NotImplementedPage "Settings") (UrlParser.s "settings")
+        , UrlParser.map (NotImplementedPage "About") (UrlParser.s "about")
         ]
 
 
@@ -289,7 +299,10 @@ showPanel : Int -> Panel -> Html Msg
 showPanel id panel = 
     Alert.config
         |> Alert.dismissableWithAnimation (ClosePanel id)
-        |> Alert.info
+        |> (case panel.style of
+                Info -> Alert.info
+                Error -> Alert.warning
+           )
         |> Alert.children
             [ Alert.h4 [] [ text panel.title ]
             , p [] [ text panel.text ]
@@ -304,10 +317,14 @@ menu model =
           |> Navbar.container
           |> Navbar.brand [ href "#" ] [ text "MiSTer" ]
           |> Navbar.items
-              [ Navbar.itemLink [ ] (if model.waiting then [ Spinner.spinner [ ] [ ] ] else [])
-              , Navbar.itemLink [ href "#cores" ] [ text "Cores" ]
+              [ Navbar.itemLink [ href "#cores" ] [ text "Cores" ]
               , Navbar.itemLink [ href "#games" ] [ text "Games" ]
-              , Navbar.itemLink [ href "#modules" ] [ text "Settings" ]
+              , Navbar.itemLink [ href "#community" ] [ text "Community" ]
+              , Navbar.itemLink [ href "#settings" ] [ text "Settings" ]
+              , Navbar.itemLink [ href "#about" ] [ text "About" ]
+              ]
+          |> Navbar.customItems
+              [ Navbar.customItem (if model.waiting > 0 then ( Spinner.spinner [ Spinner.grow ] [ ] ) else ( text "" ) )
               ]
           |> Navbar.view model.navState
     ]
@@ -320,11 +337,11 @@ mainContent model =
             Home ->
                 pageHome model
 
-            GettingStarted ->
-                pageGettingStarted model
-
             CoresPage ->
                 pageCoresPage model
+
+            NotImplementedPage title ->
+                pageNotImplemented title
 
             NotFound ->
                 pageNotFound
@@ -334,44 +351,19 @@ pageHome : Model -> List (Html Msg)
 pageHome model =
     [ Grid.row []
         [ Grid.col []
-            [ Card.config [ Card.outlinePrimary ]
-                |> Card.headerH4 [] [ text "Getting started" ]
-                |> Card.block []
-                    [ Block.text [] [ text "Getting started is real easy. Just click the start button." ]
-                    , Block.custom <|
-                        Button.linkButton
-                            [ Button.primary, Button.attrs [ href "#games" ] ]
-                            [ text "Play" ]
-                    ]
-                |> Card.view
-            ]
-        , Grid.col []
-            [ Card.config [ Card.outlineDanger ]
-                |> Card.headerH4 [] [ text "Games" ]
-                |> Card.block []
-                    [ Block.text [] [ text "Check out the modules overview" ]
-                    , Block.custom <|
-                        Button.linkButton
-                            [ Button.primary, Button.attrs [ href "#cores" ] ]
-                            [ text "Game" ]
-                    ]
-                |> Card.view
-            ]
+            [ p [] [ text "Welcome..." ] ]
         ]
     ]
 
-
-pageGettingStarted : Model -> List (Html Msg)
-pageGettingStarted model =
-    [ h2 [] [ text "Getting started" ]
-    , Button.button
-        [ Button.success
-        , Button.large
-        , Button.block
-        , Button.attrs [ onClick ScanCores ]
-        ]
-        [ text "Click me" ]
-    ]
+pageNotImplemented : String -> List (Html Msg)
+pageNotImplemented title = 
+    [ h1 [] [ text title ]
+    , Card.config [ Card.outlineInfo ]
+        |> Card.block []
+            [ Block.titleH3 [] [ text "Not implemented yet" ]
+            , Block.text [] [ p [] [text "This feature will be available on future versions."] ]
+            ]
+        |> Card.view ]
 
 
 pageCoresPage : Model -> List (Html Msg)
@@ -382,6 +374,7 @@ pageCoresPage model =
                 True -> waitForSync
                 False -> coreSyncButton
         Just cs -> coreSelector cs
+
 
 coreSelector : List Core -> List (Html Msg)
 coreSelector cs = List.map toGameLauncher cs

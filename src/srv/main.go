@@ -13,6 +13,7 @@ import (
 	pathlib "path"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +23,8 @@ import (
 	"github.com/rakyll/statik/fs"
 	"gopkg.in/ini.v1"
 )
+
+var scanMutex = &sync.Mutex{}
 
 func umountConfig() {
 	for {
@@ -205,33 +208,39 @@ func main() {
 }
 
 func ScanForCores(w http.ResponseWriter, r *http.Request) {
-	var cores []Core
-	paths := []string{
-		"/media/fat/_*/**/*.rbf",
-		"/media/fat/_*/*.rbf"}
+	scanMutex.Lock()
+	defer scanMutex.Unlock()
 
-	for _, p := range paths {
-		matches, err := filepath.Glob(p)
-		if err != nil {
-			log.Fatalf("Error scanning cores: %v", err)
-		}
-		for _, m := range matches {
-			c, err := scanCore(m)
+	if _, err := os.Stat("file-exists.go"); err != nil {
+		// File doesn't exist
+		var cores []Core
+		paths := []string{
+			"/media/fat/_*/**/*.rbf",
+			"/media/fat/_*/*.rbf"}
+
+		for _, p := range paths {
+			matches, err := filepath.Glob(p)
 			if err != nil {
-				log.Println(err)
-			} else {
-				cores = append(cores, c)
+				log.Fatalf("Error scanning cores: %v", err)
+			}
+			for _, m := range matches {
+				c, err := scanCore(m)
+				if err != nil {
+					log.Println(err)
+				} else {
+					cores = append(cores, c)
+				}
 			}
 		}
-	}
 
-	b, err := json.Marshal(cores)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = ioutil.WriteFile("/media/fat/cache/WebMenu/cores.json", b, 0644)
-	if err != nil {
-		log.Fatal(err)
+		b, err := json.Marshal(cores)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = ioutil.WriteFile("/media/fat/cache/WebMenu/cores.json", b, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 }
