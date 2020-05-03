@@ -3,18 +3,23 @@ module Main exposing (main)
 import Html exposing (..)
 import Http
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick)
+import Html.Events exposing (onClick, onInput)
 import Browser.Navigation as Navigation
 import Browser exposing (UrlRequest)
 import Url exposing (Url)
-import Url.Builder exposing (relative, string)
+import Url.Builder exposing (relative, crossOrigin, string)
 import Url.Parser as UrlParser exposing ((</>), Parser, s, top)
 import Bootstrap.Navbar as Navbar
+import Bootstrap.General.HAlign as HAlign
 import Bootstrap.Alert as Alert
+import Bootstrap.Badge as Badge
 import Bootstrap.Grid as Grid
 import Bootstrap.Grid.Col as Col
 import Bootstrap.Card as Card
 import Bootstrap.Card.Block as Block
+import Bootstrap.Tab as Tab
+import Bootstrap.Form as Form
+import Bootstrap.Form.Input as Input
 import Bootstrap.Button as Button
 import Bootstrap.ListGroup as Listgroup
 import Bootstrap.Modal as Modal
@@ -23,11 +28,18 @@ import Bootstrap.Text as Text
 import Bootstrap.Spinner as Spinner
 import Json.Decode as D
 import Dict exposing (Dict, get)
+import List.Extra exposing (unique)
 
 
 type PanelType =
       Info
     | Error
+
+repository = "nilp0inter/MiSTer_WebMenu"
+branch = "master"
+
+staticData : (List String) -> String
+staticData xs = crossOrigin "https://raw.githubusercontent.com" ([repository, branch, "static"] ++ xs) []
 
 type alias Panel =
     { title : String
@@ -48,13 +60,26 @@ coreImages  =
 type alias Core =
     { filename : String
     , codename : String
+    , lpath : List String
     }
 
-decoder : D.Decoder Core
-decoder =
-  D.map2 Core
+type alias Platform =
+    { name : String
+    , codename : List String
+    }
+
+coreDecoder : D.Decoder Core
+coreDecoder =
+  D.map3 Core
     (D.field "filename" D.string)
     (D.field "codename" D.string)
+    (D.field "lpath" (D.list D.string))
+
+platformDecoder : D.Decoder Platform
+platformDecoder =
+  D.map2 Platform
+    (D.field "name" D.string)
+    (D.field "codename" (D.list D.string))
 
 type alias Flags =
     {}
@@ -62,8 +87,10 @@ type alias Flags =
 type alias Model =
     { navKey : Navigation.Key
     , page : Page
+    , coreFilter : Maybe String
 
     , navState : Navbar.State
+    , tabState : Tab.State
 
     , modalVisibility : Modal.Visibility
     , modalTitle : String
@@ -72,6 +99,8 @@ type alias Model =
 
     , messages : (List Panel)
     , cores : Maybe (List Core)
+    , platforms : Maybe (List Platform)
+
     , waiting : Int
     , scanning : Bool
     }
@@ -102,19 +131,22 @@ init flags url key =
 
         ( model, urlCmd ) =
             urlUpdate url { navKey = key
+                          , coreFilter = Nothing
                           , navState = navState
+                          , tabState = Tab.initialState
                           , page = Home
                           , modalVisibility = Modal.hidden
                           , modalTitle = ""
                           , modalBody = ""
                           , modalAction = CloseModal
                           , cores = Nothing
-                          , waiting = 1
+                          , platforms = Nothing
+                          , waiting = 2  -- Per loadCores, loadPlatforms, ...
                           , scanning = False
                           , messages = [] }
     
     in
-        ( model, Cmd.batch [ urlCmd, navCmd, loadCores ] )
+        ( model, Cmd.batch [ urlCmd, navCmd, loadCores, loadPlatforms ] )
 
 
 
@@ -122,14 +154,21 @@ type Msg
     = UrlChange Url
     | ClickedLink UrlRequest
     | NavMsg Navbar.State
+    | TabMsg Tab.State
     | CloseModal
     | ShowModal String String Msg
+
     | LoadGame String String
     | GameLoaded (Result Http.Error ())
+
     | SyncFinished (Result Http.Error ())
+
     | LoadCores
     | ScanCores
     | GotCores (Result Http.Error (Maybe (List Core)))
+    | FilterCores String
+
+    | GotPlatforms (Result Http.Error (Maybe (List Platform)))
     | ClosePanel Int Alert.Visibility
 
 
@@ -155,6 +194,11 @@ update msg model =
 
         NavMsg state ->
             ( { model | navState = state }
+            , Cmd.none
+            )
+
+        TabMsg state ->
+            ( { model | tabState = state }
             , Cmd.none
             )
 
@@ -204,6 +248,15 @@ update msg model =
         ClosePanel id vis ->
             ( { model | messages = (List.indexedMap (changePanelVisibility vis id) model.messages) }, Cmd.none )
 
+        GotPlatforms p ->
+            case p of
+                Ok ps -> ( { model | waiting = model.waiting - 1, platforms = ps}, Cmd.none)
+                Err e -> ( { model | waiting = model.waiting - 1, platforms = Nothing}, Cmd.none)
+
+        FilterCores s ->
+            if s == ""
+            then ( { model | coreFilter = Nothing }, Cmd.none)
+            else ( { model | coreFilter = Just s }, Cmd.none)
 
 
 newPanel : PanelType -> String -> String -> Panel
@@ -245,9 +298,15 @@ loadCores : Cmd Msg
 loadCores =
     Http.get
       { url = relative ["cached", "cores.json"] [ ]
-      , expect = Http.expectJson GotCores (D.nullable (D.list decoder))
+      , expect = Http.expectJson GotCores (D.nullable (D.list coreDecoder))
       }
 
+loadPlatforms : Cmd Msg
+loadPlatforms =
+    Http.get
+      { url = staticData ["platforms.json"]
+      , expect = Http.expectJson GotPlatforms (D.nullable (D.list platformDecoder))
+      }
 
 loadGame : String -> String -> Cmd Msg
 loadGame core game =
@@ -372,6 +431,38 @@ pageNotImplemented title =
             ]
         |> Card.view ]
 
+pageNotFound : List (Html Msg)
+pageNotFound =
+    [ h1 [] [ text "Not found" ]
+    , text "Sorry couldn't find that page"
+    ]
+
+
+modal : Model -> Html Msg
+modal model =
+    Modal.config CloseModal
+        |> Modal.small
+        |> Modal.h4 [] [ text model.modalTitle ]
+        |> Modal.body []
+            [ Grid.containerFluid []
+                [ Grid.row []
+                    [ Grid.col
+                        [  ]
+                        [ text model.modalBody ]
+                    ]
+                , Grid.row []
+                    [ Grid.col
+                        [  ]
+                        [ Button.button [ Button.warning
+                                        , Button.onClick model.modalAction ] [ text "Proceed" ] ]
+                    ]
+                ]
+            ]
+        |> Modal.view model.modalVisibility
+
+-------------------------------------------------------------------------
+--                                Cores                                --
+-------------------------------------------------------------------------
 
 pageCoresPage : Model -> List (Html Msg)
 pageCoresPage model =
@@ -380,11 +471,81 @@ pageCoresPage model =
             case model.scanning of
                 True -> waitForSync
                 False -> coreSyncButton
-        Just cs -> [ coreSelector cs ]
+        Just cs ->
+            let
+                filtered =
+                    case model.coreFilter of
+                        Nothing -> cs
+                        Just s -> List.filter (matchCoreByString s) cs
+                matches =
+                    case model.coreFilter of
+                        Nothing -> Nothing
+                        Just _ -> Just (not (List.isEmpty filtered))
+            in
+                [ coreSearch matches
+                , coreTabs model filtered
+                ]
 
+
+coreSearch : Maybe Bool -> (Html Msg)
+coreSearch match =
+    let
+        status =
+            case match of
+                Nothing -> []
+                Just True -> [ Input.success ]
+                Just False -> [ Input.danger ]
+    in
+        Grid.container [ class "mb-4" ]
+            [ Grid.row []
+                [ Grid.col [ Col.sm8 ] [ h1 [] [ text "Cores" ] ]
+                , Grid.col [ Col.sm4
+                           , Col.textAlign Text.alignXsRight ]
+                      [ Form.form [ ]
+                           [ Input.text ([ Input.attrs [ placeholder "Search"
+                                                       , onInput FilterCores ]
+                                         ] ++ status)
+                           ]
+                      ]
+                ]
+            ]
+
+coreTabs : Model -> List Core -> Html Msg
+coreTabs model cs =
+    Tab.config TabMsg
+        |> Tab.items (List.map (coreTab cs) (coreSections cs))
+        |> Tab.view model.tabState
+
+matchCoreByString : String -> Core -> Bool
+matchCoreByString t c = String.contains (String.toLower t) (String.toLower c.codename)
+
+coreSections : List Core -> List (List String)
+coreSections cs = unique (List.map getLPath cs)
+
+getLPath : Core -> List String
+getLPath c = c.lpath
 
 coreSelector : List Core -> Html Msg
 coreSelector cs = Card.columns (List.map toGameLauncher cs)
+
+coreTab : List Core -> List String -> (Tab.Item Msg)
+coreTab cs path =
+    let 
+        filtered = (List.filter (isInPath path) cs)
+    in 
+        Tab.item
+          { id = String.join "/" path
+          , link = Tab.link [ ] [ text (String.join "/" path)
+                                , Badge.pillLight [ Spacing.ml2 ] [ text (String.fromInt (List.length filtered)) ] ]
+          , pane =
+              Tab.pane [ Spacing.mt3 ]
+                  [ Card.columns (List.map toGameLauncher filtered ) ]
+          }
+
+
+isInPath : List String -> Core -> Bool
+isInPath p c = c.lpath == p
+
 
 waitForSync : List (Html Msg)
 waitForSync = [
@@ -431,35 +592,8 @@ gameLauncher title body core game =
                    Just s -> s ) ] []
         |> Card.block [  ] [ Block.quote [] [ p [] [ text body ] ]
                            ]
-        |> Card.footer [ ] [ Button.button [ Button.primary
-                                          , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game)) ] [ text "Play!" ]]
+        |> Card.footer [ ] [
+                Button.button [ Button.primary
+                              , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game)) ] [ text "Play!" ]]
     
 
-pageNotFound : List (Html Msg)
-pageNotFound =
-    [ h1 [] [ text "Not found" ]
-    , text "Sorry couldn't find that page"
-    ]
-
-
-modal : Model -> Html Msg
-modal model =
-    Modal.config CloseModal
-        |> Modal.small
-        |> Modal.h4 [] [ text model.modalTitle ]
-        |> Modal.body []
-            [ Grid.containerFluid []
-                [ Grid.row []
-                    [ Grid.col
-                        [  ]
-                        [ text model.modalBody ]
-                    ]
-                , Grid.row []
-                    [ Grid.col
-                        [  ]
-                        [ Button.button [ Button.warning
-                                        , Button.onClick model.modalAction ] [ text "Proceed" ] ]
-                    ]
-                ]
-            ]
-        |> Modal.view model.modalVisibility

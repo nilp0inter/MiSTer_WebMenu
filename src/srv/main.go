@@ -13,6 +13,7 @@ import (
 	pathlib "path"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -83,12 +84,13 @@ type Game struct {
 }
 
 type Core struct {
-	Path     string `json:"path"`
-	Filename string `json:"filename"`
-	Codename string `json:"codename"`
-	Codedate string `json:"codedate"`
-	Ctime    int64  `json:"ctime"`
-	MD5      string `json:"md5"`
+	Path      string   `json:"path"`
+	Filename  string   `json:"filename"`
+	Codename  string   `json:"codename"`
+	Codedate  string   `json:"codedate"`
+	Ctime     int64    `json:"ctime"`
+	LogicPath []string `json:"lpath"`
+	MD5       string   `json:"md5"`
 }
 
 func scanCore(path string) (Core, error) {
@@ -125,6 +127,12 @@ func scanCore(path string) (Core, error) {
 		c.Codedate = string(matches[2])
 	}
 
+	// LPATH
+	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(path), "/media/fat/"), "/") {
+		if strings.HasPrefix(d, "_") {
+			c.LogicPath = append(c.LogicPath, strings.TrimLeft(d, "_"))
+		}
+	}
 	return c, nil
 }
 
