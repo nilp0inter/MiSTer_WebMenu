@@ -1,5 +1,7 @@
 # MiSTer_WebMenu
 
+![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
+
 Control your MiSTer device from a confortable web interface
 
 ![Screenshot](/assets/capture.gif)
