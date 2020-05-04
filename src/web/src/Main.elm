@@ -31,15 +31,31 @@ import Dict exposing (Dict, get)
 import List.Extra exposing (unique)
 
 
+type UpdateStatus =
+      NotReady
+    | GettingCurrent
+    | ReadyToCheck
+    | CheckingLatest
+    | OnLatestRelease
+    | UpdateAvailable
+    | Updating
+    | WaitingForReboot
+
+
+
 type PanelType =
       Info
     | Error
 
-repository = "nilp0inter/MiSTer_WebMenu"
+user = "nilp0inter"
+repository = "MiSTer_WebMenu"
 branch = "master"
 
+githubAPI : (List String) -> String
+githubAPI xs = crossOrigin "https://api.github.com" (["repos", user, repository] ++ xs) []
+
 staticData : (List String) -> String
-staticData xs = crossOrigin "https://raw.githubusercontent.com" ([repository, branch, "static"] ++ xs) []
+staticData xs = crossOrigin "https://raw.githubusercontent.com" ([user, repository, branch, "static"] ++ xs) []
 
 type alias Panel =
     { title : String
@@ -103,6 +119,10 @@ type alias Model =
 
     , waiting : Int
     , scanning : Bool
+
+    , currentVersion : String
+    , latestRelease : String
+    , updateStatus : UpdateStatus
     }
 
 type Page
@@ -142,12 +162,21 @@ init flags url key =
                           , modalAction = CloseModal
                           , cores = Nothing
                           , platforms = Nothing
-                          , waiting = 2  -- Per loadCores, loadPlatforms, ...
+                          , waiting = 3  -- Per loadCores, loadPlatforms, ...
                           , scanning = False
-                          , messages = [] }
+                          , messages = []
+
+                          , currentVersion = ""
+                          , latestRelease = ""
+                          , updateStatus = NotReady
+                          }
     
     in
-        ( model, Cmd.batch [ urlCmd, navCmd, loadCores, loadPlatforms ] )
+        ( model, Cmd.batch [ urlCmd
+                           , navCmd
+                           , loadCores
+                           , loadPlatforms
+                           , checkCurrentVersion ] )
 
 
 
@@ -172,6 +201,13 @@ type Msg
     | GotPlatforms (Result Http.Error (Maybe (List Platform)))
     | ClosePanel Int Alert.Visibility
 
+    | GotCurrentVersion (Result Http.Error String)
+
+    | CheckLatestRelease
+    | GotLatestRelease (Result Http.Error (List (Maybe String)))
+
+    | Update String
+    | GotUpdateResult (Result Http.Error ())
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
@@ -260,6 +296,65 @@ update msg model =
             else ( { model | coreFilter = Just s }, Cmd.none)
 
 
+        GotCurrentVersion x ->
+            case x of
+                Ok v -> ( { model | waiting = model.waiting - 1
+                                  , currentVersion = v }, Cmd.none)
+                Err e -> ( { model | waiting = model.waiting - 1
+                                   , messages = (newPanel Error "Error retrieving current version" (errorToString e)) :: model.messages }, Cmd.none )
+
+        CheckLatestRelease ->
+            ( { model | updateStatus = CheckingLatest
+                      , waiting = model.waiting + 1 }
+              , checkLatestRelease )
+
+        GotLatestRelease x ->
+            case x of
+                Ok v ->
+                    let
+                        latest = (List.foldr (firstJust) Nothing v)
+                    in
+                        case latest of
+                            Nothing ->
+                                ( { model | waiting = model.waiting - 1
+                                          , updateStatus = OnLatestRelease }
+                                , Cmd.none)
+                            Just l ->
+                                ( { model | waiting = model.waiting - 1
+                                          , latestRelease = l
+                                          , updateStatus = if l == model.currentVersion
+                                                           then OnLatestRelease
+                                                           else UpdateAvailable
+                                  }
+                                , Cmd.none)
+                Err e -> ( { model | waiting = model.waiting - 1
+                                   , messages = (newPanel Error "Error checking latest release" (errorToString e)) :: model.messages
+                                   , updateStatus = ReadyToCheck }
+                           , Cmd.none)
+
+        Update v ->
+            ( { model | updateStatus = Updating
+                      , waiting = model.waiting + 1 }
+            , updateToRelease v )
+
+        GotUpdateResult x ->
+            case x of
+                Ok _ ->  ( { model | waiting = model.waiting - 1
+                                   , updateStatus = WaitingForReboot
+                                   }
+                           , Cmd.none )
+                Err e -> ( { model | waiting = model.waiting - 1
+                                   , updateStatus = UpdateAvailable
+                                   , messages = (newPanel Error "Error updating WebMenu!" (errorToString e)) :: model.messages }
+                           , Cmd.none )
+            
+
+firstJust : Maybe a -> Maybe a -> Maybe a
+firstJust l r =
+    case l of
+        Nothing -> r
+        Just x -> Just x
+
 newPanel : PanelType -> String -> String -> Panel
 newPanel ptype title text =
     { title = title
@@ -287,6 +382,43 @@ errorToString error =
             "Unknown error"
         Http.BadBody errorMessage ->
             errorMessage
+
+checkCurrentVersion : Cmd Msg
+checkCurrentVersion =
+    Http.get
+      { url = relative ["api", "version", "current"] []
+      , expect = Http.expectString GotCurrentVersion
+      }
+
+decodeReleases : D.Decoder (List (Maybe String))
+decodeReleases =
+    D.list
+       (D.map3
+           decodeStable
+           (D.field "tag_name" D.string)
+           (D.field "draft" D.bool)
+           (D.field "prerelease" D.bool))
+
+checkLatestRelease : Cmd Msg
+checkLatestRelease =
+    Http.get
+      { url = githubAPI ["releases"]
+      , expect = Http.expectJson GotLatestRelease decodeReleases
+      }
+
+updateToRelease : String -> Cmd Msg
+updateToRelease v =
+    Http.post
+      { url = relative ["api", "version"] [ ]
+      , body = Http.stringBody "text/plain" v
+      , expect = Http.expectWhatever GotUpdateResult
+      }
+
+decodeStable : String -> Bool -> Bool -> Maybe String
+decodeStable tag draft prerelease =
+    if draft || prerelease
+    then Nothing
+    else Just tag
 
 syncCores : Bool -> Cmd Msg
 syncCores force =
@@ -421,20 +553,57 @@ mainContent model =
 pageSettingsPage : Model -> List (Html Msg)
 pageSettingsPage model =
     [ h1 [] [ text "Settings" ]
-    , Card.config [ Card.outlineLight ]
-        |> Card.block []
-            [ Block.titleH2 [] [ text "Cores" ]
-            , Block.text [] [ p [] [text "Click on 'Scan now' to start scanning for available cores in your MiSTer."],
-                              p [] [text "This may take a couple of minutes depending on the number of files in your SD card."] ]
-            , Block.custom <|
-                Button.button [ Button.disabled model.scanning
-                              , Button.primary
-                              , Button.onClick (ScanCores True)
-                 ] [ text "Scan now" ]
-            ]
-        |> Card.view ]
+    , Card.deck
+      [ Card.config [ Card.outlineLight ]
+          |> Card.block [] (scanCoresBlock model)
+      , Card.config [ Card.outlineLight ]
+          |> Card.block [] (checkForUpdatesBlock model)
+          |> Card.block [] (
+                 case model.updateStatus of
+                     UpdateAvailable -> (updateAvailableBlock model)
+                     Updating -> (updateAvailableBlock model)
+                     WaitingForReboot -> (updateAvailableBlock model)
+                     _ -> [] )
+      ]
+    ]
 
-        
+scanCoresBlock model =
+    [ Block.titleH2 [] [ text "Cores" ]
+    , Block.text [] [ p [] [text "Click on 'Scan now' to start scanning for available cores in your MiSTer."],
+                      p [] [text "This may take a couple of minutes depending on the number of files in your SD card."] ]
+    , Block.custom <|
+        Button.button [ Button.disabled model.scanning
+                      , Button.primary
+                      , Button.onClick (ScanCores True)
+         ] [ text "Scan now" ]
+    ]
+
+checkForUpdatesBlock model =
+    [ Block.titleH2 [] [ text "WebMenu Update" ]
+    , Block.text [] [ p [] [ text "Check for new available versions of WebMenu."]
+                    , p [] [ text "You are currently running "
+                           , strong [] [ text model.currentVersion ]
+                           ]
+                    ]
+    , Block.custom
+          <| Button.button [ Button.disabled (model.updateStatus == ReadyToCheck)
+                           , Button.info
+                           , Button.onClick CheckLatestRelease
+                           ] [ text "Check for updates" ]
+    ]
+
+updateAvailableBlock model = 
+    [ Block.titleH3 [] [ text "Update Available!" ]
+    , Block.text [] [ p [] [ text "The latest release is "
+                           , strong [] [ text model.latestRelease ]
+                           ]
+                    ]
+    , Block.custom
+          <| Button.button [ Button.disabled (model.updateStatus /= UpdateAvailable)
+                           , Button.warning
+                           , Button.onClick (Update model.latestRelease)
+                           ] [ text "Update!" ]
+    ]
 
 pageAboutPage : Model -> List (Html Msg)
 pageAboutPage model =
@@ -559,8 +728,6 @@ coreSections cs = unique (List.map getLPath cs)
 getLPath : Core -> List String
 getLPath c = c.lpath
 
-coreSelector : List Core -> Html Msg
-coreSelector cs = Card.columns (List.map toGameLauncher cs)
 
 coreTab : List Core -> List String -> (Tab.Item Msg)
 coreTab cs path =
