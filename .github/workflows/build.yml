@@ -2,27 +2,97 @@ name: "Build"
 on:
   pull_request:
     paths:
-      - "src/**"
-      - ".github/workflows/build.yml"
+      - 'src/**'
+      - '.github/workflows/build.yml'
   push:
     paths:
-      - "src/**"
-      - ".github/workflows/build.yml"
+      - 'src/**'
+      - '.github/workflows/build.yml'
+    tags:
+      - '*'
+    branches:
+      - master
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - run: |
+        git fetch --prune --unshallow
     - name: Build binary
       run: docker run -v `pwd`:/code -t nixos/nix:latest nix-shell -p gnumake --run "nix-channel --remove nixpkgs && nix-channel --add https://nixos.org/channels/nixos-20.03 nixpkgs && nix-channel --update && cd /code/src/ && make"
+    - name: Create Checksum File
+      run: cd src && sha256sum webmenu.sh > sha256.sum
     - name: Upload Artifact
       uses: actions/upload-artifact@v2
       with:
         name: webmenu.sh
-        path: src/webmenu.sh
-    - name: Release
-      uses: fnkr/github-action-ghr@v1
-      if: startsWith(github.ref, 'refs/tags/')
+        path: 'src/webmenu.sh'
+    - name: Create Stable (Draft release)
+      id: create_stable_release
+      uses: actions/create-release@latest
+      if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'rc')
       env:
-        GHR_PATH: src/webmenu.sh
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: ${{ github.ref }}
+        draft: true
+        prerelease: false
+    - name: Upload Stable Release Artifact
+      id: upload_stable_release_asset 
+      if: steps.create_stable_release.outcome == 'success'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_stable_release.outputs.upload_url }}
+        asset_path: ./src/webmenu.sh
+        asset_name: webmenu.sh
+        asset_content_type: text/x-shellscript
+    - name: Upload Stable Release Checksum
+      id: upload_stable_release_asset_sum 
+      if: steps.create_stable_release.outcome == 'success'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_stable_release.outputs.upload_url }}
+        asset_path: ./src/sha256.sum
+        asset_name: sha256.sum
+        asset_content_type: text/plain
+
+    - name: Create Experimental (Prerelease)
+      id: create_experimental_release
+      uses: actions/create-release@latest
+      if: startsWith(github.ref, 'refs/tags/') && steps.create_stable_release.outcome == 'skipped'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: ${{ github.ref }}
+        draft: false
+        prerelease: true
+    - name: Upload Experimental Release Artifact
+      id: upload_experimental_release_asset
+      if: steps.create_experimental_release.outcome == 'success'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_experimental_release.outputs.upload_url }}
+        asset_path: ./src/webmenu.sh
+        asset_name: webmenu.sh
+        asset_content_type: text/x-shellscript
+    - name: Upload Experimental Release Checksum
+      id: upload_experimental_release_asset_sum 
+      if: steps.create_experimental_release.outcome == 'success'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_experimental_release.outputs.upload_url }}
+        asset_path: ./src/sha256.sum
+        asset_name: sha256.sum
+        asset_content_type: text/plain
+  

@@ -26,6 +26,7 @@ import (
 )
 
 var scanMutex = &sync.Mutex{}
+var Version string = "<Version>"
 
 func umountConfig() {
 	for {
@@ -185,7 +186,7 @@ func createCache() {
 func main() {
 	msgs := make(chan Game)
 
-	fmt.Println("Starting MiSTer WebMenu!")
+	fmt.Printf("MiSTer WebMenu %s\n", Version)
 	createCache()
 	umountConfig()
 	patchConfig()
@@ -199,6 +200,7 @@ func main() {
 	// Serve the contents over HTTP.
 	r := mux.NewRouter()
 	r.HandleFunc("/api/run", BuildRunCoreWithGame(msgs))
+	r.HandleFunc("/api/version/current", GetCurrentVersion)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
 	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir("/media/fat/cache/WebMenu"))))
 	r.PathPrefix("/").Handler(http.FileServer(statikFS))
@@ -213,6 +215,10 @@ func main() {
 
 	log.Fatal(srv.ListenAndServe())
 
+}
+
+func GetCurrentVersion(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte(Version))
 }
 
 func ScanForCores(w http.ResponseWriter, r *http.Request) {
