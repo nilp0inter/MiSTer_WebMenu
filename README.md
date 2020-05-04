@@ -1,6 +1,7 @@
 # MiSTer_WebMenu
 
 ![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/nilp0inter/MiSTer_WebMenu)
 
 Control your MiSTer device from a confortable web interface
 
