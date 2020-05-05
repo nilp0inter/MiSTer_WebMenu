@@ -13,7 +13,7 @@
 ## Constraints
   - Minimal resource usage: all hard work should be done in the secondary device
   - No modifications: no special MiSTer versions or config modifications
-  - Single install step: Once the WebMenu single-file distribution is in your system you can always update it through the web interface
+  - Single install step: Once the WebMenu single-distribution-file is in your system you can always update it through the web interface without having to take out your SD never again
   - No interference: WebMenu **WILL NEVER** modify your system in a permanent way.  Just press *reset* and you are back to normal.
 
 ## Project Status
