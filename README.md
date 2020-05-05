@@ -1,6 +1,5 @@
 # MiSTer_WebMenu
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/nilp0inter/MiSTer_WebMenu)
 ![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
 
 ![Screenshot](/assets/capture.gif)
@@ -41,7 +40,7 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
   - [x] List by category
   - [x] Search by name
   - [x] Launch cores from the web interface
-- [ ] Auto-update
+- [x] Auto-update
 - [ ] Collection of installed roms
   - [ ] Scan SD for games
   - [ ] Filter by metadata (name, platform, genre, favourite...)
