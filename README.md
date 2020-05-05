@@ -52,5 +52,5 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
 - [ ] Device information (available capacity, resources...)
 
 
-Do I miss something? Open an [issue](https://github.com/nilp0inter/MiSTer_WebMenu/issues).
+Did I miss something? Open an [issue](https://github.com/nilp0inter/MiSTer_WebMenu/issues).
 
