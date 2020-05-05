@@ -349,7 +349,7 @@ update msg model =
                 Ok _ ->  ( model, rebootBackend )
                 Err e -> ( { model | waiting = model.waiting - 1
                                    , updateStatus = UpdateAvailable
-                                   , messages = (newPanel Error "Error updating WebMenu!" (errorToString e)) :: model.messages }
+                                   , messages = (newPanel Error "Error updating WebMenu :(" (errorToString e)) :: model.messages }
                            , Cmd.none )
 
         Reload -> ( model, reload ())
@@ -371,8 +371,6 @@ update msg model =
                         else (model, checkNewVersion)
                 Err _ ->  (model, checkNewVersion)
 
-
-            
 
 firstJust : Maybe a -> Maybe a -> Maybe a
 firstJust l r =
@@ -631,6 +629,7 @@ pageSettingsPage model =
           |> Card.block [] (
                  case model.updateStatus of
                      UpdateAvailable -> (updateAvailableBlock model)
+                     OnLatestRelease -> (onLatestReleaseBlock model)
                      Updating -> (updateAvailableBlock model)
                      WaitingForReboot -> (updateAvailableBlock model)
                      _ -> [] )
@@ -650,7 +649,7 @@ scanCoresBlock model =
 
 checkForUpdatesBlock model =
     [ Block.titleH2 [] [ text "WebMenu Update" ]
-    , Block.text [] [ p [] [ text "Check for new available versions of WebMenu."]
+    , Block.text [] [ p [] [ text "Check for new releases of WebMenu."]
                     , p [] [ text "You are currently running "
                            , strong [] [ text model.currentVersion ]
                            ]
@@ -661,6 +660,9 @@ checkForUpdatesBlock model =
                            , Button.onClick CheckLatestRelease
                            ] [ text "Check for updates" ]
     ]
+
+onLatestReleaseBlock model = 
+    [ Block.text [] [ strong [] [ text "You are up to date!" ] ] ]
 
 updateAvailableBlock model = 
     [ Block.titleH3 [] [ text "Update Available!" ]
