@@ -2,12 +2,12 @@ name: "Data"
 on:
   pull_request:
     paths:
-      - "data/**"
-      - ".github/workflows/data.yml"
+      - 'data/**'
+      - '.github/workflows/data.yml'
   push:
     paths:
-      - "data/**"
-      - ".github/workflows/data.yml"
+      - 'data/**'
+      - '.github/workflows/data.yml'
 jobs:
   build:
     runs-on: ubuntu-latest
