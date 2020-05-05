@@ -1,7 +1,10 @@
-module Main exposing (main)
+port module Main exposing (main)
 
 import Html exposing (..)
 import Http
+import Process
+import Time
+import Task
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
 import Browser.Navigation as Navigation
@@ -30,6 +33,7 @@ import Json.Decode as D
 import Dict exposing (Dict, get)
 import List.Extra exposing (unique)
 
+port reload : () -> Cmd msg
 
 type UpdateStatus =
       NotReady
@@ -39,9 +43,8 @@ type UpdateStatus =
     | OnLatestRelease
     | UpdateAvailable
     | Updating
+    | Updated
     | WaitingForReboot
-
-
 
 type PanelType =
       Info
@@ -209,6 +212,10 @@ type Msg
     | Update String
     | GotUpdateResult (Result Http.Error ())
 
+    | GotReboot (Result Http.Error ())
+    | GotNewVersion (Result Http.Error String)
+    | Reload
+
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Navbar.subscriptions model.navState NavMsg
@@ -339,14 +346,32 @@ update msg model =
 
         GotUpdateResult x ->
             case x of
-                Ok _ ->  ( { model | waiting = model.waiting - 1
-                                   , updateStatus = WaitingForReboot
-                                   }
-                           , Cmd.none )
+                Ok _ ->  ( model, rebootBackend )
                 Err e -> ( { model | waiting = model.waiting - 1
                                    , updateStatus = UpdateAvailable
                                    , messages = (newPanel Error "Error updating WebMenu!" (errorToString e)) :: model.messages }
                            , Cmd.none )
+
+        Reload -> ( model, reload ())
+
+        GotReboot x ->
+            case x of
+                Ok _ -> ( model, checkNewVersion )
+                Err _ ->  ( model, rebootBackend )
+          
+        GotNewVersion x ->
+            case x of
+                Ok v -> if v /= model.currentVersion
+                        then ( { model | waiting = model.waiting - 1
+                                       , updateStatus = WaitingForReboot
+                                       , modalVisibility = Modal.shown
+                                       , modalTitle = "Updated Successfully!"
+                                       , modalBody = "Click to finish the installation."
+                                       , modalAction = Reload }, Cmd.none )
+                        else (model, checkNewVersion)
+                Err _ ->  (model, checkNewVersion)
+
+
             
 
 firstJust : Maybe a -> Maybe a -> Maybe a
@@ -383,12 +408,57 @@ errorToString error =
         Http.BadBody errorMessage ->
             errorMessage
 
+delay : Float -> msg -> Cmd msg
+delay time msg =
+  Process.sleep time
+  |> Task.perform (\_ -> msg)
+
+-- rebootBackend : Cmd Msg
+rebootBackend =
+    Task.attempt GotReboot
+    (Http.task
+       { method = "POST"
+       , headers = []
+       , url = relative ["api", "webmenu", "reboot"] []
+       , body = Http.emptyBody
+       , timeout = Nothing
+       , resolver = Http.stringResolver <| ignoreResolver
+       })
+
+ignoreResolver : Http.Response String -> Result Http.Error ()
+ignoreResolver response =
+    case response of
+        Http.GoodStatus_ _ body -> Ok ()
+        x -> Err Http.Timeout
+
 checkCurrentVersion : Cmd Msg
 checkCurrentVersion =
     Http.get
       { url = relative ["api", "version", "current"] []
       , expect = Http.expectString GotCurrentVersion
       }
+
+checkNewVersion : Cmd Msg
+checkNewVersion =
+    Task.attempt GotNewVersion
+    (
+      Process.sleep 3000
+        |> Task.andThen (\_ ->
+               (Http.task
+                  { method = "GET"
+                  , headers = []
+                  , url = relative ["api", "version", "current"] []
+                  , body = Http.emptyBody
+                  , timeout = Nothing
+                  , resolver = Http.stringResolver <| passStringResolver
+                  }))
+    )
+
+passStringResolver : Http.Response String -> Result Http.Error String
+passStringResolver response =
+    case response of
+        Http.GoodStatus_ _ body -> Ok body
+        x -> Err Http.Timeout
 
 decodeReleases : D.Decoder (List (Maybe String))
 decodeReleases =

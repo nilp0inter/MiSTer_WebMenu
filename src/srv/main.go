@@ -199,6 +199,7 @@ func main() {
 
 	// Serve the contents over HTTP.
 	r := mux.NewRouter()
+	r.HandleFunc("/api/webmenu/reboot", PerformWebMenuReboot).Methods("POST")
 	r.HandleFunc("/api/update", PerformUpdate).Methods("POST")
 	r.HandleFunc("/api/run", BuildRunCoreWithGame(msgs))
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
@@ -208,7 +209,7 @@ func main() {
 
 	srv := &http.Server{
 		Handler: r,
-		Addr:    "0.0.0.0:8080",
+		Addr:    "0.0.0.0:80",
 		// Good practice: enforce timeouts for servers you create!
 		WriteTimeout: 90 * time.Second,
 		ReadTimeout:  90 * time.Second,
@@ -383,4 +384,16 @@ func UpdateSystem(version string) error {
 	}
 
 	return nil
+}
+
+/////////////////////////////////////////////////////////////////////////
+//                               reboot                                //
+/////////////////////////////////////////////////////////////////////////
+
+func PerformWebMenuReboot(w http.ResponseWriter, r *http.Request) {
+	cmd := exec.Command("/media/fat/Scripts/webmenu.sh")
+	go func() {
+		time.Sleep(3 * time.Second)
+		cmd.Run()
+	}()
 }

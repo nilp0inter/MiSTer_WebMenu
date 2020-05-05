@@ -15,6 +15,9 @@
     <script>
         var app = Elm.Main.init({});
         // you can use ports and stuff here
+        app.ports.reload.subscribe(function(x) {
+            location.reload(true);
+        });
     </script>
   </body>
 </html>
