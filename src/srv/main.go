@@ -188,8 +188,8 @@ func main() {
 
 	fmt.Printf("MiSTer WebMenu %s\n", Version)
 	createCache()
-	// umountConfig()
-	// patchConfig()
+	umountConfig()
+	patchConfig()
 	go gameLauncher(msgs)
 
 	statikFS, err := fs.New()
