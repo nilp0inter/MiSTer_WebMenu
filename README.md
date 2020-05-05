@@ -3,7 +3,16 @@
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/nilp0inter/MiSTer_WebMenu)
 ![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
 
-Control your MiSTer device from a confortable web interface
+## Goals
+  - Control your MiSTer device from a secondary screen (computer, tablet or phone web browser)
+  - Launch cores and games with a single click (independtly of which core is currently running)
+  - Manage game collections, playing stats, favourites... 
+
+## Constraints
+  - Minimal resource usage: all hard work should be done in the secondary device
+  - No modifications: no special MiSTer versions or config modifications
+  - Single install step: Once the WebMenu single-file distribution is in your system you can always update it through the web interface
+  - No interference: WebMenu **WILL NEVER** modify your system in a permanent way.  Just press *reset* and you are back to normal.
 
 ![Screenshot](/assets/capture.gif)
 
