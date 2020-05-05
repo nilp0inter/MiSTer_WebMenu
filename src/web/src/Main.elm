@@ -218,7 +218,9 @@ type Msg
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Navbar.subscriptions model.navState NavMsg
+    Sub.batch
+        [ Navbar.subscriptions model.navState NavMsg
+        , Tab.subscriptions model.tabState TabMsg ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -537,9 +539,9 @@ routeParser : Parser (Page -> a) a
 routeParser =
     UrlParser.oneOf
         [ UrlParser.map AboutPage top
-        , UrlParser.map (NotImplementedPage "Games" "Search your game collection and play any rom with a single click.") (UrlParser.s "games")
+        , UrlParser.map (NotImplementedPage "Games" "Search your game collection and play any ROM with a single click") (UrlParser.s "games")
         , UrlParser.map CoresPage (UrlParser.s "cores")
-        , UrlParser.map (NotImplementedPage "Community" "View MiSTer news, and receive community updates and relevant content.") (UrlParser.s "community")
+        , UrlParser.map (NotImplementedPage "Community" "View MiSTer news, and receive community updates and relevant content") (UrlParser.s "community")
         , UrlParser.map SettingsPage (UrlParser.s "settings")
         , UrlParser.map AboutPage (UrlParser.s "about")
         ]
@@ -559,7 +561,7 @@ view model =
 
 messages : Model -> Html Msg
 messages model = 
-    div [ class "mb-4" ] [
+    div [ class "mb-1" ] [
         Grid.row []
             [ Grid.col [] (List.indexedMap showPanel model.messages) ] ]
 
@@ -569,7 +571,7 @@ showPanel id panel =
         |> Alert.dismissableWithAnimation (ClosePanel id)
         |> (case panel.style of
                 Info -> Alert.info
-                Error -> Alert.warning
+                Error -> Alert.danger
            )
         |> Alert.children
             [ Alert.h4 [] [ text panel.title ]
@@ -579,11 +581,12 @@ showPanel id panel =
 
 menu : Model -> Html Msg
 menu model =
-    div [ class "mb-4" ] [ 
+    div [ class "mb-2" ] [ 
       Navbar.config NavMsg
           |> Navbar.withAnimation
-          |> Navbar.container
-          |> Navbar.brand [ href "#about" ] [ text "MiSTer" ]
+          |> Navbar.dark
+          |> Navbar.collapseSmall
+          |> Navbar.brand [ class "text-white" ] [ strong [] [ text "MiSTer" ] ]
           |> Navbar.items
               [ Navbar.itemLink [ href "#cores" ] [ text "Cores" ]
               , Navbar.itemLink [ href "#games" ] [ text "Games" ]
@@ -618,9 +621,29 @@ mainContent model =
                 pageNotFound
     )
 
+sectionHeading : String -> String -> (Html Msg)
+sectionHeading title motto =
+    Grid.container []
+        [ Grid.row []
+            [ Grid.col [] [ h1 [ class "display-4" ] [ text title ]
+                          , p [ class "lead" ] [ text motto ]
+                          ]
+            ]
+        ]
+
+           
+    -- Card.config [ Card.outlineLight
+    --             , Card.attrs [ Spacing.mb3 ]
+    --             ]
+    --     |> Card.block []
+    --        [ Block.titleH1 [ class "display-4" ] [ text title ]
+    --        , Block.text [] [ p [ class "lead" ] [ text motto ] ]
+    --        ]
+    --     |> Card.view
+
 pageSettingsPage : Model -> List (Html Msg)
 pageSettingsPage model =
-    [ h1 [] [ text "Settings" ]
+    [ sectionHeading "Settings" "WebMenu and MiSTer configuration"
     , Card.deck
       [ Card.config [ Card.outlineLight ]
           |> Card.block [] (scanCoresBlock model)
@@ -679,12 +702,13 @@ updateAvailableBlock model =
 
 pageAboutPage : Model -> List (Html Msg)
 pageAboutPage model =
-    [ Grid.row []
+    [ Grid.row [  ]
         [ Grid.col []
-            [ p [] [ text "Welcome to "
-                   , strong [ ] [ text "MiSTer WebMenu" ]
-                   , text ", a web interface for the MiSTer device."]
-            , p [] [ text "This project is an early alpha, so expect some crashes here and there.  Please, report any crashes and/or desired feature through the project "
+            [ h1 [ class "mt-4" ] [ text "Welcome to WebMenu!\n" 
+                     , br [] []
+                     , small [ class "text-muted", class "lead" ] [ text "A web interface for MiSTer" ] ]
+            , p [] [ text "This project is an early alpha, so expect some rough edges." ]
+            , p [] [ text "Please, report any problems and/or desired feature through the project " 
                    , a [ href "https://github.com/nilp0inter/MiSTer_WebMenu/issues"
                        , target "_blank" ] [ text "GitHub Issues" ]
                    , text " page."
@@ -696,12 +720,11 @@ pageAboutPage model =
 
 pageNotImplemented : String -> String -> List (Html Msg)
 pageNotImplemented title description = 
-    [ h1 [] [ text title ]
-    , p [] [ text description ]
-    , Card.config [ Card.outlineInfo ]
+    [ sectionHeading title description 
+    , Card.config [  ]
         |> Card.block []
             [ Block.titleH3 [] [ text "Not implemented yet" ]
-            , Block.text [] [ p [] [text "This feature will be available on future versions."] ]
+            , Block.text [] [ p [ ] [text "This feature will be available on future versions."] ]
             ]
         |> Card.view ]
 
@@ -739,7 +762,10 @@ modal model =
 -------------------------------------------------------------------------
 
 pageCoresPage : Model -> List (Html Msg)
-pageCoresPage model =
+pageCoresPage model = [ sectionHeading "Cores" "Search your core collection and launch individual cores with a click" ] ++ (pageCoresPageContent model)
+
+pageCoresPageContent : Model -> List (Html Msg)
+pageCoresPageContent model =
     case model.cores of
         Nothing ->
             case model.scanning of
@@ -757,7 +783,6 @@ pageCoresPage model =
                         Just _ -> Just (not (List.isEmpty filtered))
             in
                 [ coreSearch matches
-                , p [] [ text "Search your core collection and launch individual cores with a click." ]
                 , coreTabs model filtered
                 ]
 
@@ -771,9 +796,9 @@ coreSearch match =
                 Just True -> [ Input.success ]
                 Just False -> [ Input.danger ]
     in
-        Grid.container [ class "mb-2" ]
+        Grid.container [ class "mb-1" ]
             [ Grid.row []
-                [ Grid.col [ Col.sm8 ] [ h1 [] [ text "Cores" ] ]
+                [ Grid.col [ Col.sm8 ] [  ]
                 , Grid.col [ Col.sm4
                            , Col.textAlign Text.alignXsRight ]
                       [ Form.form [ ]
@@ -788,6 +813,9 @@ coreSearch match =
 coreTabs : Model -> List Core -> Html Msg
 coreTabs model cs =
     Tab.config TabMsg
+        |> Tab.pills
+        |> Tab.center
+        |> Tab.withAnimation
         |> Tab.items (List.map (coreTab cs) (coreSections cs))
         |> Tab.view model.tabState
 
@@ -861,10 +889,9 @@ gameLauncher title body core game =
         |> Card.header [] [ text title ]
         |> Card.imgTop [ src (
                case (get title coreImages) of
-                   Nothing -> "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/1024px-No_image_available.svg.png"
+                   Nothing -> ""
                    Just s -> s ) ] []
-        |> Card.block [  ] [ Block.quote [] [ p [] [ text body ] ]
-                           ]
+
         |> Card.footer [ ] [
                 Button.button [ Button.primary
                               , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game)) ] [ text "Play!" ]]
