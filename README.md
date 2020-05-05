@@ -31,7 +31,7 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
 
 - Test it!  If something is not working properly, please [fill a bug report](https://github.com/nilp0inter/MiSTer_WebMenu/issues/new?assignees=nilp0inter&labels=bug&template=bug_report.md&title=).
 - [Contribute your ideas](https://github.com/nilp0inter/MiSTer_WebMenu/issues/new?assignees=nilp0inter&labels=enhancement&template=feature_request.md&title=) about new features.
-- Give your feedback. Do you like it? Hate it? [Give feedback](https://github.com/nilp0inter/MiSTer_WebMenu/issues/new?assignees=nilp0inter&labels=user+feedback&template=user-feedback.md&title=).
+- [Give feedback](https://github.com/nilp0inter/MiSTer_WebMenu/issues/new?assignees=nilp0inter&labels=user+feedback&template=user-feedback.md&title=). Do you like it? Hate it?
 - [Ask anything](https://github.com/nilp0inter/MiSTer_WebMenu/issues/new?assignees=nilp0inter&labels=question&template=question.md&title=%3CShort+question+here%3E%3F) you don't understand.
 
 ## Roadmap
