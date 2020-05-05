@@ -188,8 +188,8 @@ func main() {
 
 	fmt.Printf("MiSTer WebMenu %s\n", Version)
 	createCache()
-	umountConfig()
-	patchConfig()
+	// umountConfig()
+	// patchConfig()
 	go gameLauncher(msgs)
 
 	statikFS, err := fs.New()
@@ -199,6 +199,7 @@ func main() {
 
 	// Serve the contents over HTTP.
 	r := mux.NewRouter()
+	r.HandleFunc("/api/update", PerformUpdate).Methods("POST")
 	r.HandleFunc("/api/run", BuildRunCoreWithGame(msgs))
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
@@ -207,7 +208,7 @@ func main() {
 
 	srv := &http.Server{
 		Handler: r,
-		Addr:    "0.0.0.0:80",
+		Addr:    "0.0.0.0:8080",
 		// Good practice: enforce timeouts for servers you create!
 		WriteTimeout: 90 * time.Second,
 		ReadTimeout:  90 * time.Second,
@@ -279,4 +280,107 @@ func BuildRunCoreWithGame(c chan Game) func(http.ResponseWriter, *http.Request) 
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "%v\n%v", core, game)
 	}
+}
+
+/////////////////////////////////////////////////////////////////////////
+//                               update                                //
+/////////////////////////////////////////////////////////////////////////
+
+func PerformUpdate(w http.ResponseWriter, r *http.Request) {
+	version, ok := r.URL.Query()["version"]
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Version is mandatory"))
+		return
+	}
+	err := UpdateSystem(version[0])
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	return
+}
+
+func Sha256Check(filepath string, sumpath string) error {
+	cmd := exec.Command("/bin/sh", "-c", "sha256sum -c \"${SUM_PATH}\" < \"${FILE_PATH}\"")
+	cmd.Env = append(os.Environ(),
+		"SUM_PATH="+sumpath,
+		"FILE_PATH="+filepath)
+	return cmd.Run()
+}
+
+func DownloadFile(filepath string, url string) error {
+
+	// Get the data
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Create the file
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Write the body to file
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+func CopyFile(src string, dst string) error {
+	input, err := ioutil.ReadFile(src)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	err = ioutil.WriteFile(dst, input, 0644)
+	if err != nil {
+		fmt.Println("Error creating", dst)
+		fmt.Println(err)
+		return err
+	}
+
+	return nil
+}
+
+func UpdateSystem(version string) error {
+	url := "https://github.com/nilp0inter/MiSTer_WebMenu/releases/download/" + version + "/"
+
+	err := DownloadFile("/tmp/sha256.sum", url+"sha256.sum")
+	defer os.Remove("/tmp/sha256.sum")
+	if err != nil {
+		return err
+	}
+
+	err = DownloadFile("/tmp/webmenu.sh", url+"webmenu.sh")
+	defer os.Remove("/tmp/webmenu.sh")
+	if err != nil {
+		return err
+	}
+
+	err = Sha256Check("/tmp/webmenu.sh", "/tmp/sha256.sum")
+	if err != nil {
+		return err
+	}
+
+	err = CopyFile(
+		"/media/fat/Scripts/webmenu.sh",
+		"/media/fat/Scripts/webmenu_prev.sh")
+	if err != nil {
+		return err
+	}
+
+	err = CopyFile(
+		"/tmp/webmenu.sh",
+		"/media/fat/Scripts/webmenu.sh")
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
