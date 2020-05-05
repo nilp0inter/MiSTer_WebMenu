@@ -2,6 +2,7 @@ port module Main exposing (main)
 
 import Html exposing (..)
 import Http
+import Bootstrap.CDN as CDN
 import Process
 import Time
 import Task
@@ -552,7 +553,8 @@ view model =
     { title = "MiSTer WebMenu"
     , body =
         [ div []
-            [ menu model
+            [ CDN.stylesheet -- creates an inline style node with the Bootstrap CSS
+            , menu model
             , mainContent model
             , modal model
             ]
@@ -585,6 +587,7 @@ menu model =
       Navbar.config NavMsg
           |> Navbar.withAnimation
           |> Navbar.dark
+          |> Navbar.container
           |> Navbar.collapseSmall
           |> Navbar.brand [ class "text-white" ] [ strong [] [ text "MiSTer" ] ]
           |> Navbar.items
