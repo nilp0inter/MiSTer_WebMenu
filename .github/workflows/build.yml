@@ -22,7 +22,7 @@ jobs:
     - name: Build binary
       run: docker run -v `pwd`:/code -t nixos/nix:latest nix-shell -p gnumake --run "nix-channel --remove nixpkgs && nix-channel --add https://nixos.org/channels/nixos-20.03 nixpkgs && nix-channel --update && cd /code/src/ && make"
     - name: Create Checksum File
-      run: cd src && sha256sum webmenu.sh > sha256.sum
+      run: cd src && sha256sum < webmenu.sh > sha256.sum
     - name: Upload Artifact
       uses: actions/upload-artifact@v2
       with:
