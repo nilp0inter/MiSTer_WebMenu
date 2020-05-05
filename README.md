@@ -29,7 +29,7 @@ The project is in early alpha, the implemented features should work for standard
 
 I am not accepting new code pull requests at this stage, but I'd appreciate if you can:
 
-- Test it!  If something is not working properly, please open an [issue](https://github.com/nilp0inter/MiSTer_WebMenu/issues).
+- Test it!  If something is not working properly, please fill [a bug report](https://github.com/nilp0inter/MiSTer_WebMenu/issues/new?assignees=nilp0inter&labels=bug&template=bug_report.md&title=).
 - Contribute your ideas about new features.
 - Give your feedback. Do you like it? Hate it? Open an issue or send me a tweet ([@nilp0inter](https://twitter.com/nilp0inter))
 
@@ -51,5 +51,5 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
 - [ ] Device information (available capacity, resources...)
 
 
-Did I miss something? Open an [issue](https://github.com/nilp0inter/MiSTer_WebMenu/issues).
+Did I miss something? Fill a [feature request](https://github.com/nilp0inter/MiSTer_WebMenu/issues/new?assignees=nilp0inter&labels=enhancement&template=feature_request.md&title=).
 
