@@ -2,6 +2,14 @@
 
 ![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
 
+## Installation
+
+1. Download `webmenu.sh` from [the latest release](https://github.com/nilp0inter/MiSTer_WebMenu/releases/latest) and copy it to the `Scripts` directory in your SD card.
+
+2. Start your MiSTer, go to **Scripts** and launch `webmenu`.
+
+3. Open your web browser and point to *http://\<your-mister-ip-address\>*
+
 ![Screenshot](/assets/capture.gif)
 
 ## Goals
@@ -24,14 +32,6 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
 - Test it!  If something is not working properly, please open an [issue](https://github.com/nilp0inter/MiSTer_WebMenu/issues).
 - Contribute your ideas about new features.
 - Give your feedback. Do you like it? Hate it? Open an issue or send me a tweet ([@nilp0inter](https://twitter.com/nilp0inter))
-
-## Usage Instructions
-
-1. Download `webmenu.sh` from [the latest release](https://github.com/nilp0inter/MiSTer_WebMenu/releases/latest) and copy it to the `Scripts` directory in your SD card.
-
-2. Start your MiSTer, go to **Scripts** and launch `webmenu`.
-
-3. Open your web browser and point to *http://\<your-mister-ip-address\>*
 
 ## Roadmap
 
