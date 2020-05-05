@@ -3,6 +3,8 @@
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/nilp0inter/MiSTer_WebMenu)
 ![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
 
+![Screenshot](/assets/capture.gif)
+
 ## Goals
   - Control your MiSTer device from a secondary screen (computer, tablet or phone web browser)
   - Launch cores and games with a single click (independtly of which core is currently running)
@@ -13,8 +15,6 @@
   - No modifications: no special MiSTer versions or config modifications
   - Single install step: Once the WebMenu single-file distribution is in your system you can always update it through the web interface
   - No interference: WebMenu **WILL NEVER** modify your system in a permanent way.  Just press *reset* and you are back to normal.
-
-![Screenshot](/assets/capture.gif)
 
 ## Project Status
 
@@ -34,13 +34,14 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
 
 3. Open your web browser and point to *http://\<your-mister-ip-address\>*
 
-## Features
+## Roadmap
 
 - [x] Collection of installed cores
   - [x] Scan SD for cores
   - [x] List by category
   - [x] Search by name
   - [x] Launch cores from the web interface
+- [ ] Auto-update
 - [ ] Collection of installed roms
   - [ ] Scan SD for games
   - [ ] Filter by metadata (name, platform, genre, favourite...)
@@ -49,7 +50,7 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
 - [ ] Configuration management
 - [ ] Community feed
 - [ ] Device information (available capacity, resources...)
-- [ ] Auto-update
 
-Do you miss something? Open an [issue](https://github.com/nilp0inter/MiSTer_WebMenu/issues).
+
+Do I miss something? Open an [issue](https://github.com/nilp0inter/MiSTer_WebMenu/issues).
 
