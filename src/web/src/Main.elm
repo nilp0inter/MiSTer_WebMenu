@@ -479,8 +479,8 @@ checkLatestRelease =
 updateToRelease : String -> Cmd Msg
 updateToRelease v =
     Http.post
-      { url = relative ["api", "version"] [ ]
-      , body = Http.stringBody "text/plain" v
+      { url = relative ["api", "update"] [ string "version" v ]
+      , body = Http.emptyBody
       , expect = Http.expectWhatever GotUpdateResult
       }
 
