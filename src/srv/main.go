@@ -22,66 +22,15 @@ import (
 	ps "github.com/mitchellh/go-ps"
 	_ "github.com/nilp0inter/MiSTer_WebMenu/statik"
 	"github.com/rakyll/statik/fs"
-	"gopkg.in/ini.v1"
 )
 
 var scanMutex = &sync.Mutex{}
 var Version string = "<Version>"
 
-func umountConfig() {
-	for {
-		cmd := exec.Command("/bin/umount", "/media/fat/MiSTer.ini")
-
-		if err := cmd.Start(); err != nil {
-			log.Fatalf("Cannot umount MiSTer config: %v", err)
-		}
-
-		if err := cmd.Wait(); err != nil {
-			if exiterr, ok := err.(*exec.ExitError); ok {
-				if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
-					if st := status.ExitStatus(); st == 32 {
-						// Nothing is mounted
-						return
-					} else {
-						log.Fatalf("Error unmounting MiSTer config: ", st)
-					}
-				}
-			} else {
-				log.Fatalf("cmd.Wait: %v", err)
-				continue
-			}
-		}
-	}
-}
-
-func patchConfig() {
-	cfg, err := ini.Load("/media/fat/MiSTer.ini")
-	if err != nil {
-		fmt.Printf("Fail to read file: %v", err)
-		os.Exit(1)
-	}
-
-	cfg.Section("MiSTer").Key("bootcore").SetValue("lastexactcore")
-	cfg.Section("MiSTer").DeleteKey("bootcore_timeout")
-	cfg.SaveTo("/tmp/WebMenu.ini")
-
-	cmd := exec.Command("/bin/mount", "-o", "bind,ro", "/tmp/WebMenu.ini", "/media/fat/MiSTer.ini")
-
-	if err := cmd.Start(); err != nil {
-		log.Fatalf("Cannot mount MiSTer config: %v", err)
-	}
-
-	if err := cmd.Wait(); err != nil {
-		if exiterr, ok := err.(*exec.ExitError); ok {
-			log.Fatalf("Error mounting MiSTer config: %v", exiterr)
-		}
-	}
-
-}
-
 type Game struct {
-	Core string
-	Game string
+	Core     string
+	CorePath string
+	Game     string
 }
 
 type Core struct {
@@ -137,7 +86,7 @@ func scanCore(path string) (Core, error) {
 	return c, nil
 }
 
-func reloadMiSTer() {
+func reloadMiSTer(corepath string) {
 	pss, err := ps.Processes()
 	if err != nil {
 		log.Fatalf("Cannot list processes: %v", err)
@@ -155,9 +104,27 @@ func reloadMiSTer() {
 				log.Printf("Cannot kill MiSTer process!: %v", err)
 				continue
 			}
+
+			// Wait for the process to die
+			for {
+				p, err := os.FindProcess(p.Pid())
+				if err != nil {
+					log.Fatalf("Error finding process")
+				}
+				err = p.Signal(syscall.Signal(0))
+				if err != nil {
+					// it died
+					break
+				}
+			}
 		}
 	}
-	cmd := exec.Command("/media/fat/MiSTer")
+
+	// time.Sleep(2 * time.Second) // Wait for the system to recover from the loss :)
+
+	cmd := exec.Command("/media/fat/MiSTer", corepath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	err = cmd.Start()
 	if err != nil {
 		log.Fatalf("Cannot launch MiSTer process %v:", err)
@@ -165,18 +132,8 @@ func reloadMiSTer() {
 	go cmd.Wait()
 }
 
-func gameLauncher(c chan Game) {
-	for {
-		g := <-c
-		fmt.Printf("Core: %v | Game: %v\n", g.Core, g.Game)
-
-		err := ioutil.WriteFile("/media/fat/config/lastcore.dat", []byte(g.Core), 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-		reloadMiSTer()
-
-	}
+func launchGame(path string) error {
+	return ioutil.WriteFile("/dev/MiSTer_cmd", []byte("load_core "+path), 0644)
 }
 
 func createCache() {
@@ -184,13 +141,9 @@ func createCache() {
 }
 
 func main() {
-	msgs := make(chan Game)
 
 	fmt.Printf("MiSTer WebMenu %s\n", Version)
 	createCache()
-	umountConfig()
-	patchConfig()
-	go gameLauncher(msgs)
 
 	statikFS, err := fs.New()
 	if err != nil {
@@ -201,7 +154,7 @@ func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/webmenu/reboot", PerformWebMenuReboot).Methods("POST")
 	r.HandleFunc("/api/update", PerformUpdate).Methods("POST")
-	r.HandleFunc("/api/run", BuildRunCoreWithGame(msgs))
+	r.HandleFunc("/api/run", RunCoreWithGame)
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
 	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir("/media/fat/cache/WebMenu"))))
@@ -264,22 +217,17 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func BuildRunCoreWithGame(c chan Game) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		game, ok := r.URL.Query()["game"]
-		if !ok {
-			return
-		}
+func RunCoreWithGame(w http.ResponseWriter, r *http.Request) {
+	path, ok := r.URL.Query()["path"]
+	if !ok {
+		return
+	}
 
-		core, ok := r.URL.Query()["core"]
-		if !ok {
-			return
-		}
-
-		msg := Game{Core: core[0], Game: game[0]}
-		c <- msg
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "%v\n%v", core, game)
+	err := launchGame(path[0])
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
 	}
 }
 

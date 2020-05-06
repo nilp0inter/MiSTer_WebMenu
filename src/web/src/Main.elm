@@ -134,6 +134,7 @@ type alias Core =
     { filename : String
     , codename : String
     , lpath : List String
+    , corepath : String
     }
 
 type alias Platform =
@@ -143,10 +144,11 @@ type alias Platform =
 
 coreDecoder : D.Decoder Core
 coreDecoder =
-  D.map3 Core
+  D.map4 Core
     (D.field "filename" D.string)
     (D.field "codename" D.string)
     (D.field "lpath" (D.list D.string))
+    (D.field "path" D.string)
 
 platformDecoder : D.Decoder Platform
 platformDecoder =
@@ -245,7 +247,7 @@ type Msg
     | CloseModal
     | ShowModal String String Msg
 
-    | LoadGame String String
+    | LoadGame String String String
     | GameLoaded (Result Http.Error ())
 
     | SyncFinished (Result Http.Error ())
@@ -315,8 +317,8 @@ update msg model =
             , Cmd.none
             )
 
-        LoadGame core game ->
-            ( { model | modalVisibility = Modal.hidden }, loadGame core game )
+        LoadGame core game lpath ->
+            ( { model | modalVisibility = Modal.hidden }, loadGame core game lpath )
 
         GameLoaded _ ->
             ( model, Cmd.none )
@@ -565,10 +567,10 @@ loadPlatforms =
       , expect = Http.expectJson GotPlatforms (D.nullable (D.list platformDecoder))
       }
 
-loadGame : String -> String -> Cmd Msg
-loadGame core game =
+loadGame : String -> String -> String -> Cmd Msg
+loadGame core game lpath =
     Http.get
-      { url = relative ["api", "run"] [ string "core" core, string "game" game ]
+      { url = relative ["api", "run"] [ string "path" lpath ]
       , expect = Http.expectWhatever GameLoaded
       }
 
@@ -933,10 +935,10 @@ coreSyncButton = [
 
 
 toGameLauncher : Core -> (Card.Config Msg)
-toGameLauncher c = gameLauncher c.codename "" c.filename ""
+toGameLauncher c = gameLauncher c.codename "" c.filename "" c.corepath
 
-gameLauncher : String -> String -> String -> String -> (Card.Config Msg)
-gameLauncher title body core game =
+gameLauncher : String -> String -> String -> String -> String -> (Card.Config Msg)
+gameLauncher title body core game lpath =
     Card.config [ Card.outlineSecondary
                 , Card.attrs [ ]
                 , Card.align Text.alignXsCenter ]
@@ -948,6 +950,6 @@ gameLauncher title body core game =
 
         |> Card.footer [ ] [
                 Button.button [ Button.primary
-                              , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game)) ] [ text "Play!" ]]
+                              , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game lpath)) ] [ text "Play!" ]]
     
 
