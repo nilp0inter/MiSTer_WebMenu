@@ -1,8 +1,10 @@
+# MiSTer WebMenu
+
+![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
+
 <p align="center">
   <img alt="Screenshot" src="/assets/capture.gif"/>
 </p>
-
-![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
 
 ## Installation
 
