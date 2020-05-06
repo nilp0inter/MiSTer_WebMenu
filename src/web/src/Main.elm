@@ -3,6 +3,10 @@ port module Main exposing (main)
 import Html exposing (..)
 import Http
 import Bootstrap.CDN as CDN
+import Bootstrap.CDN as CDN
+import FontAwesome.Styles as Icon
+import FontAwesome.Icon as Icon exposing (Icon)
+import FontAwesome.Solid as Icon
 import Process
 import Time
 import Task
@@ -23,6 +27,7 @@ import Bootstrap.Card as Card
 import Bootstrap.Card.Block as Block
 import Bootstrap.Tab as Tab
 import Bootstrap.Form as Form
+import Bootstrap.Form.InputGroup as InputGroup
 import Bootstrap.Form.Input as Input
 import Bootstrap.Button as Button
 import Bootstrap.ListGroup as Listgroup
@@ -602,6 +607,7 @@ view model =
     , body =
         [ div []
             [ CDN.stylesheet -- creates an inline style node with the Bootstrap CSS
+            , Icon.css
             , menu model
             , mainContent model
             , modal model
@@ -834,32 +840,29 @@ pageCoresPageContent model =
                         Just _ -> Just (not (List.isEmpty filtered))
             in
                 [ coreSearch matches
-                , coreTabs model filtered
+                , if List.isEmpty filtered
+                  then (p [ ] [ text "Your search did not match any cores :(" ] )
+                  else coreTabs model filtered
                 ]
 
 
 coreSearch : Maybe Bool -> (Html Msg)
 coreSearch match =
-    let
-        status =
-            case match of
-                Nothing -> []
-                Just True -> [ Input.success ]
-                Just False -> [ Input.danger ]
-    in
-        Grid.container [ class "mb-1" ]
-            [ Grid.row []
-                [ Grid.col [ Col.sm8 ] [  ]
-                , Grid.col [ Col.sm4
-                           , Col.textAlign Text.alignXsRight ]
-                      [ Form.form [ ]
-                           [ Input.text ([ Input.attrs [ placeholder "Search"
-                                                       , onInput FilterCores ]
-                                         ] ++ status)
-                           ]
-                      ]
-                ]
+    Grid.container [ class "mb-1" ]
+        [ Grid.row []
+            [ Grid.col [ Col.sm8 ] [  ]
+            , Grid.col [ Col.sm4
+                       , Col.textAlign Text.alignXsRight ]
+                  [ Form.form [ ]
+                       [ InputGroup.config
+                             (InputGroup.text [ Input.attrs [ onInput FilterCores ] ])
+                             |> InputGroup.predecessors
+                                 [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
+                             |> InputGroup.view
+                       ]
+                  ]
             ]
+        ]
 
 coreTabs : Model -> List Core -> Html Msg
 coreTabs model cs =
