@@ -3,7 +3,9 @@
 ![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
 
 <p align="center">
-  <img alt="Screenshot" src="/assets/capture.gif"/>
+  <kbd>
+  <img alt="Screenshot" src="/assets/capture.gif" />
+  </kbd>
 </p>
 
 ## Installation
