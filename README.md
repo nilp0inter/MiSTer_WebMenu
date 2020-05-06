@@ -10,7 +10,9 @@
 
 3. Open your web browser and point to *http://\<your-mister-ip-address\>*
 
-![Screenshot](/assets/capture.gif)
+<p align="center">
+<img alt="Screenshot" src="/assets/capture.gif"/>
+</p>
 
 ## Goals
   - Control your MiSTer device from a secondary screen (computer, tablet or phone web browser)
