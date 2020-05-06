@@ -1,4 +1,7 @@
-# MiSTer_WebMenu
+<p align="center">
+  <h1>MiSTer WebMenu</h1>
+  <img alt="Screenshot" src="/assets/capture.gif"/>
+</p>
 
 ![Build](https://github.com/nilp0inter/MiSTer_WebMenu/workflows/Build/badge.svg)
 
@@ -10,9 +13,7 @@
 
 3. Open your web browser and point to *http://\<your-mister-ip-address\>*
 
-<p align="center">
-<img alt="Screenshot" src="/assets/capture.gif"/>
-</p>
+
 
 ## Goals
   - Control your MiSTer device from a secondary screen (computer, tablet or phone web browser)
