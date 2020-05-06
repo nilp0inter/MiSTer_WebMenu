@@ -1,5 +1,4 @@
 <p align="center">
-  <h1>MiSTer WebMenu</h1>
   <img alt="Screenshot" src="/assets/capture.gif"/>
 </p>
 
