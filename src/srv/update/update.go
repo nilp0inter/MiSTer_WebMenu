@@ -59,8 +59,8 @@ func copyFile(src string, dst string) error {
 }
 
 func UpdateSystem(version string) error {
-	updateChecksum := path.Join(system.CachePath, "sha256.sum.update")
-	updatewebMenuSHPath := path.Join(system.CachePath, "webmenu.sh.update")
+	updateChecksum := path.Join(system.CachePath, "sha256.sum")
+	updateWebMenuSHPath := path.Join(system.CachePath, "webmenu.sh")
 	url := "https://github.com/nilp0inter/MiSTer_WebMenu/releases/download/" + version + "/"
 
 	err := downloadFile(updateChecksum, url+"sha256.sum")
@@ -69,13 +69,13 @@ func UpdateSystem(version string) error {
 		return err
 	}
 
-	err = downloadFile(updatewebMenuSHPath, url+"webmenu.sh")
-	defer os.Remove(updatewebMenuSHPath)
+	err = downloadFile(updateWebMenuSHPath, url+"webmenu.sh")
+	defer os.Remove(updateWebMenuSHPath)
 	if err != nil {
 		return err
 	}
 
-	err = sha256Check(updatewebMenuSHPath, updateChecksum)
+	err = sha256Check(updateWebMenuSHPath, updateChecksum)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func UpdateSystem(version string) error {
 		return err
 	}
 
-	err = copyFile(updatewebMenuSHPath, system.WebMenuSHPath)
+	err = copyFile(updateWebMenuSHPath, system.WebMenuSHPath)
 	if err != nil {
 		return err
 	}
