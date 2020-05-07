@@ -7,25 +7,35 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	pathlib "path"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
-	ps "github.com/mitchellh/go-ps"
 	_ "github.com/nilp0inter/MiSTer_WebMenu/statik"
 	"github.com/rakyll/statik/fs"
 )
 
+// Version is obtained at compile time
+const Version = "<Version>"
+const misterFifo = "/dev/MiSTer_cmd"
+const sdPath = "/media/fat"
+
+var scriptsPath = path.Join(sdPath, "Scripts")
+var cachePath = path.Join(sdPath, ".cache", "WebMenu")
+var coresDBPath = path.Join(cachePath, "cores.json")
+var webMenuSHPath = path.Join(scriptsPath, "webmenu.sh")
+var webMenuSHPathBackup = path.Join(scriptsPath, "webmenu_prev.sh")
+
 var scanMutex = &sync.Mutex{}
-var Version string = "<Version>"
 
 type Game struct {
 	Core     string
@@ -78,7 +88,7 @@ func scanCore(path string) (Core, error) {
 	}
 
 	// LPATH
-	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(path), "/media/fat/"), "/") {
+	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(path), sdPath), "/") {
 		if strings.HasPrefix(d, "_") {
 			c.LogicPath = append(c.LogicPath, strings.TrimLeft(d, "_"))
 		}
@@ -86,63 +96,40 @@ func scanCore(path string) (Core, error) {
 	return c, nil
 }
 
-func reloadMiSTer(corepath string) {
-	pss, err := ps.Processes()
-	if err != nil {
-		log.Fatalf("Cannot list processes: %v", err)
-	}
-	for _, p := range pss {
-		if p.Executable() == "MiSTer" {
-			p2, err := os.FindProcess(p.Pid())
-			if err != nil {
-				log.Printf("Cannot find MiSTer process, maybe it died?: %v", err)
-				continue
-			}
-
-			err = p2.Signal(os.Interrupt)
-			if err != nil {
-				log.Printf("Cannot kill MiSTer process!: %v", err)
-				continue
-			}
-
-			// Wait for the process to die
-			for {
-				p, err := os.FindProcess(p.Pid())
-				if err != nil {
-					log.Fatalf("Error finding process")
-				}
-				err = p.Signal(syscall.Signal(0))
-				if err != nil {
-					// it died
-					break
-				}
-			}
-		}
-	}
-
-	// time.Sleep(2 * time.Second) // Wait for the system to recover from the loss :)
-
-	cmd := exec.Command("/media/fat/MiSTer", corepath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Start()
-	if err != nil {
-		log.Fatalf("Cannot launch MiSTer process %v:", err)
-	}
-	go cmd.Wait()
-}
-
 func launchGame(path string) error {
-	return ioutil.WriteFile("/dev/MiSTer_cmd", []byte("load_core "+path), 0644)
+	return ioutil.WriteFile(misterFifo, []byte("load_core "+path), 0644)
 }
 
 func createCache() {
-	os.MkdirAll("/media/fat/cache/WebMenu", os.ModePerm)
+	os.MkdirAll(cachePath, os.ModePerm)
+}
+
+// Get preferred outbound ip of this machine
+func GetOutboundIP() (error, net.IP) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return err, nil
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return nil, localAddr.IP
+}
+
+func greetUser() {
+	fmt.Printf("MiSTer WebMenu %s\n\n", Version)
+	err, ip := GetOutboundIP()
+	if err != nil {
+		fmt.Println("No connection detected :(")
+	} else {
+		fmt.Printf("Browser to: http://%s\n", ip)
+	}
 }
 
 func main() {
 
-	fmt.Printf("MiSTer WebMenu %s\n", Version)
+	greetUser()
 	createCache()
 
 	statikFS, err := fs.New()
@@ -157,19 +144,16 @@ func main() {
 	r.HandleFunc("/api/run", RunCoreWithGame)
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
-	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir("/media/fat/cache/WebMenu"))))
+	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir(cachePath))))
 	r.PathPrefix("/").Handler(http.FileServer(statikFS))
 
 	srv := &http.Server{
-		Handler: r,
-		Addr:    "0.0.0.0:80",
-		// Good practice: enforce timeouts for servers you create!
+		Handler:      r,
+		Addr:         "0.0.0.0:80",
 		WriteTimeout: 90 * time.Second,
 		ReadTimeout:  90 * time.Second,
 	}
-
 	log.Fatal(srv.ListenAndServe())
-
 }
 
 func GetCurrentVersion(w http.ResponseWriter, r *http.Request) {
@@ -183,12 +167,12 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 	force, ok := r.URL.Query()["force"]
 	doForce := ok && force[0] == "1"
 
-	if _, err := os.Stat("/media/fat/cache/WebMenu/cores.json"); doForce || err != nil {
+	if _, err := os.Stat(coresDBPath); doForce || err != nil {
 		// File doesn't exist
 		var cores []Core
 		paths := []string{
-			"/media/fat/_*/**/*.rbf",
-			"/media/fat/_*/*.rbf"}
+			path.Join(sdPath, "_*/*.rbf"),
+		}
 
 		for _, p := range paths {
 			matches, err := filepath.Glob(p)
@@ -209,7 +193,7 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		err = ioutil.WriteFile("/media/fat/cache/WebMenu/cores.json", b, 0644)
+		err = ioutil.WriteFile(coresDBPath, b, 0644)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -298,35 +282,33 @@ func CopyFile(src string, dst string) error {
 }
 
 func UpdateSystem(version string) error {
+	updateChecksum := path.Join(cachePath, "sha256.sum.update")
+	updatewebMenuSHPath := path.Join(cachePath, "webmenu.sh.update")
 	url := "https://github.com/nilp0inter/MiSTer_WebMenu/releases/download/" + version + "/"
 
-	err := DownloadFile("/tmp/sha256.sum", url+"sha256.sum")
-	defer os.Remove("/tmp/sha256.sum")
+	err := DownloadFile(updateChecksum, url+"sha256.sum")
+	defer os.Remove(updateChecksum)
 	if err != nil {
 		return err
 	}
 
-	err = DownloadFile("/tmp/webmenu.sh", url+"webmenu.sh")
-	defer os.Remove("/tmp/webmenu.sh")
+	err = DownloadFile(updatewebMenuSHPath, url+"webmenu.sh")
+	defer os.Remove(updatewebMenuSHPath)
 	if err != nil {
 		return err
 	}
 
-	err = Sha256Check("/tmp/webmenu.sh", "/tmp/sha256.sum")
+	err = Sha256Check(updatewebMenuSHPath, updateChecksum)
 	if err != nil {
 		return err
 	}
 
-	err = CopyFile(
-		"/media/fat/Scripts/webmenu.sh",
-		"/media/fat/Scripts/webmenu_prev.sh")
+	err = CopyFile(webMenuSHPath, webMenuSHPathBackup)
 	if err != nil {
 		return err
 	}
 
-	err = CopyFile(
-		"/tmp/webmenu.sh",
-		"/media/fat/Scripts/webmenu.sh")
+	err = CopyFile(updatewebMenuSHPath, webMenuSHPath)
 	if err != nil {
 		return err
 	}
@@ -339,7 +321,7 @@ func UpdateSystem(version string) error {
 /////////////////////////////////////////////////////////////////////////
 
 func PerformWebMenuReboot(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.Command("/media/fat/Scripts/webmenu.sh")
+	cmd := exec.Command(webMenuSHPath)
 	go func() {
 		time.Sleep(3 * time.Second)
 		cmd.Run()
