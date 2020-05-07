@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/md5"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -27,17 +28,31 @@ import (
 )
 
 // Version is obtained at compile time
-const Version = "<Version>"
+var Version = "<Version>"
 
 var scanMutex = &sync.Mutex{}
 
-type Game struct {
-	Core     string
-	CorePath string
-	Game     string
+type Cores struct {
+	RBFs []RBF `json:"rbfs"`
+	MRAs []MRA `json:"mras"`
 }
 
-type Core struct {
+type MRA struct {
+	Path      string   `json:"path"`
+	Filename  string   `json:"filename"`
+	Ctime     int64    `json:"ctime"`
+	LogicPath []string `json:"lpath"`
+	MD5       string   `json:"md5"`
+	Name      string   `json:"name" xml:"name"`
+	Rbf       string   `xml:"rbf" json:"-"`
+	Roms      []struct {
+		Zip string `xml:"zip,attr" json:"zip"`
+		MD5 string `xml:"md5,attr" json:"md5"`
+	} `xml:"rom" json:"roms"`
+	RomsFound bool `json:"roms_found"`
+}
+
+type RBF struct {
 	Path      string   `json:"path"`
 	Filename  string   `json:"filename"`
 	Codename  string   `json:"codename"`
@@ -47,8 +62,79 @@ type Core struct {
 	MD5       string   `json:"md5"`
 }
 
-func scanCore(path string) (Core, error) {
-	var c Core
+func scanMRA(path string) (MRA, error) {
+	var c MRA
+
+	// Path
+	c.Path = path
+	fi, err := os.Stat(path)
+	if err != nil {
+		return c, err
+	}
+	c.Ctime = fi.ModTime().Unix()
+
+	// MD5
+	x, err := ioutil.ReadFile(path)
+	if err != nil {
+		return c, err
+	}
+
+	h := md5.New()
+	h.Sum(x)
+	c.MD5 = fmt.Sprintf("%x", h.Sum(nil))
+
+	// NAME
+	c.Filename = pathlib.Base(path)
+
+	// LPATH
+	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(path), system.SdPath), "/") {
+		if strings.HasPrefix(d, "_") {
+			c.LogicPath = append(c.LogicPath, strings.TrimLeft(d, "_"))
+		}
+	}
+
+	err = xml.Unmarshal(x, &c)
+	if err != nil {
+		return c, err
+	}
+
+	c.RomsFound = true
+	rp := 0
+	for i := 0; i < len(c.Roms) && c.RomsFound; i++ {
+		rom := c.Roms[i]
+		if rom.MD5 == "" {
+			continue
+		}
+
+		if rom.Zip == "" || rom.MD5 == "" {
+			continue
+		}
+		c.Roms[rp] = rom
+		rp++
+		thisFound := false
+		for _, zip := range strings.Split(rom.Zip, "|") {
+			x, err := ioutil.ReadFile(zip)
+			if err != nil {
+				continue
+			}
+
+			h = md5.New()
+			h.Sum(x)
+			if rom.MD5 != fmt.Sprintf("%x", h.Sum(nil)) {
+				continue
+			}
+			thisFound = true
+			break
+		}
+		c.RomsFound = c.RomsFound && thisFound
+	}
+	c.Roms = c.Roms[:rp]
+
+	return c, nil
+}
+
+func scanRBF(path string) (RBF, error) {
+	var c RBF
 
 	// Path
 	c.Path = path
@@ -166,24 +252,33 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 	doForce := ok && force[0] == "1"
 
 	if _, err := os.Stat(system.CoresDBPath); doForce || err != nil {
-		// File doesn't exist
-		var cores []Core
-		paths := []string{
-			path.Join(system.SdPath, "_*/*.rbf"),
+		var cores Cores
+
+		// Scan for RBFs
+		matches, err := filepath.Glob(path.Join(system.SdPath, "_*/*.rbf"))
+		if err != nil {
+			log.Fatalf("Error scanning RBFs: %v", err)
+		}
+		for _, m := range matches {
+			c, err := scanRBF(m)
+			if err != nil {
+				log.Println(err)
+			} else {
+				cores.RBFs = append(cores.RBFs, c)
+			}
 		}
 
-		for _, p := range paths {
-			matches, err := filepath.Glob(p)
+		// Scan for MRAs
+		matches, err = filepath.Glob(path.Join(system.SdPath, "_*/*.mra"))
+		if err != nil {
+			log.Fatalf("Error scanning MRAs: %v", err)
+		}
+		for _, m := range matches {
+			c, err := scanMRA(m)
 			if err != nil {
-				log.Fatalf("Error scanning cores: %v", err)
-			}
-			for _, m := range matches {
-				c, err := scanCore(m)
-				if err != nil {
-					log.Println(err)
-				} else {
-					cores = append(cores, c)
-				}
+				log.Println(err)
+			} else {
+				cores.MRAs = append(cores.MRAs, c)
 			}
 		}
 
@@ -213,10 +308,6 @@ func RunCoreWithGame(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-/////////////////////////////////////////////////////////////////////////
-//                               update                                //
-/////////////////////////////////////////////////////////////////////////
-
 func PerformUpdate(w http.ResponseWriter, r *http.Request) {
 	version, ok := r.URL.Query()["version"]
 	if !ok {
@@ -232,10 +323,6 @@ func PerformUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	return
 }
-
-/////////////////////////////////////////////////////////////////////////
-//                               reboot                                //
-/////////////////////////////////////////////////////////////////////////
 
 func PerformWebMenuReboot(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.Command(system.WebMenuSHPath)

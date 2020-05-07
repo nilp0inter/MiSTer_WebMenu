@@ -41,6 +41,10 @@ import List.Extra exposing (unique)
 
 port reload : () -> Cmd msg
 
+type Core =
+      RBFCore RBF
+    | MRACore MRA
+
 type UpdateStatus =
       NotReady
     | GettingCurrent
@@ -130,11 +134,26 @@ coreImages  =
         , ("SAMCoupe", "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/SAM_Coup%C3%A9.jpg/600px-SAM_Coup%C3%A9.jpg")
         ]
 
-type alias Core =
+type alias RBF =
     { filename : String
     , codename : String
     , lpath : List String
-    , corepath : String
+    , path : String
+    }
+
+type alias Rom =
+    { zip : String
+    , md5 : String
+    }
+
+type alias MRA =
+    { path : String
+    , filename : String
+    , name : String
+    , lpath : List String
+    , md5 : String
+    , roms : List Rom
+    , romsFound : Bool
     }
 
 type alias Platform =
@@ -142,13 +161,37 @@ type alias Platform =
     , codename : List String
     }
 
-coreDecoder : D.Decoder Core
+romDecoder : D.Decoder Rom
+romDecoder =
+  (D.map2 (Rom)
+     (D.field "zip" D.string)
+     (D.field "md5" D.string))
+
+rbfDecoder : D.Decoder RBF
+rbfDecoder =
+  (D.map4 (RBF)
+     (D.field "filename" D.string)
+     (D.field "codename" D.string)
+     (D.field "lpath" (D.list D.string))
+     (D.field "path" D.string))
+
+mraDecoder : D.Decoder MRA
+mraDecoder =
+  (D.map7 MRA
+     (D.field "path" D.string)
+     (D.field "filename" D.string)
+     (D.field "name" D.string)
+     (D.field "lpath" (D.list D.string))
+     (D.field "md5" D.string)
+     (D.field "roms" (D.map (Maybe.withDefault []) (D.nullable (D.list romDecoder))))
+     (D.field "roms_found" D.bool))
+
+coreDecoder : D.Decoder (List Core)
 coreDecoder =
-  D.map4 Core
-    (D.field "filename" D.string)
-    (D.field "codename" D.string)
-    (D.field "lpath" (D.list D.string))
-    (D.field "path" D.string)
+     -- (D.field "rbfs" (D.list (D.map RBFCore rbfDecoder)))
+  (D.map2 (++)
+     (D.field "rbfs" (D.list (D.map RBFCore rbfDecoder)))
+     (D.field "mras" (D.list (D.map MRACore mraDecoder))))
 
 platformDecoder : D.Decoder Platform
 platformDecoder =
@@ -331,10 +374,7 @@ update msg model =
                 Ok cs -> ( { model | waiting = model.waiting - 1, cores = cs }, Cmd.none )
                 Err (Http.BadStatus 404) -> ( { model | waiting = model.waiting-1, cores = Nothing }, Cmd.none )
                 Err e -> ( { model | waiting = model.waiting - 1
-                                   , modalVisibility = Modal.shown
-                                   , modalTitle = "Error!"
-                                   , modalBody = errorToString e
-                                   , modalAction = CloseModal}, Cmd.none )
+                                   , messages = (newPanel Error "Error parsing cores" (errorToString e)) :: model.messages  }, Cmd.none )
 
         ScanCores force ->
             ( { model | scanning = True
@@ -557,7 +597,7 @@ loadCores : Cmd Msg
 loadCores =
     Http.get
       { url = relative ["cached", "cores.json"] [ ]
-      , expect = Http.expectJson GotCores (D.nullable (D.list coreDecoder))
+      , expect = Http.expectJson GotCores (D.nullable coreDecoder)
       }
 
 loadPlatforms : Cmd Msg
@@ -876,13 +916,19 @@ coreTabs model cs =
         |> Tab.view model.tabState
 
 matchCoreByString : String -> Core -> Bool
-matchCoreByString t c = String.contains (String.toLower t) (String.toLower c.codename)
+matchCoreByString t c =
+   case c of
+       RBFCore r -> String.contains (String.toLower t) (String.toLower r.codename)
+       MRACore m -> String.contains (String.toLower t) (String.toLower m.name)
 
 coreSections : List Core -> List (List String)
 coreSections cs = unique (List.map getLPath cs)
 
 getLPath : Core -> List String
-getLPath c = c.lpath
+getLPath c =
+    case c of
+        RBFCore r -> r.lpath
+        MRACore m -> m.lpath
 
 
 coreTab : List Core -> List String -> (Tab.Item Msg)
@@ -901,7 +947,10 @@ coreTab cs path =
 
 
 isInPath : List String -> Core -> Bool
-isInPath p c = c.lpath == p
+isInPath p x =
+    case x of
+        RBFCore r -> r.lpath == p
+        MRACore m -> m.lpath == p
 
 
 waitForSync : List (Html Msg)
@@ -935,19 +984,33 @@ coreSyncButton = [
 
 
 toGameLauncher : Core -> (Card.Config Msg)
-toGameLauncher c = gameLauncher c.codename "" c.filename "" c.corepath
+toGameLauncher c =
+    case c of
+        RBFCore r -> gameLauncher r.codename [] r.filename "" r.path
+        MRACore m -> gameLauncher m.name (mraCardBlock m) m.filename "" m.path
 
-gameLauncher : String -> String -> String -> String -> String -> (Card.Config Msg)
+mraCardBlock m =
+    [ Block.text [] [ p [] [ text "Type: MRA" ]
+                    , p [] [ text "ROMs: "
+                           , if m.romsFound
+                             then Badge.badgeSuccess [ Spacing.ml1 ] [ text "Found" ]
+                             else Badge.badgeWarning [ Spacing.ml1 ] [ text "Missing" ]
+                           ]
+                    ]
+    ]
+
+gameLauncher : String -> List (Block.Item Msg) -> String -> String -> String -> (Card.Config Msg)
 gameLauncher title body core game lpath =
     Card.config [ Card.outlineSecondary
                 , Card.attrs [ ]
-                , Card.align Text.alignXsCenter ]
-        |> Card.header [] [ text title ]
+                ]
+        |> Card.header [ class "text-center" ] [ text title ]
         |> Card.imgTop [ src (
                case (get title coreImages) of
                    Nothing -> ""
                    Just s -> s ) ] []
 
+        |> Card.block [] body
         |> Card.footer [ ] [
                 Button.button [ Button.primary
                               , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game lpath)) ] [ text "Play!" ]]
