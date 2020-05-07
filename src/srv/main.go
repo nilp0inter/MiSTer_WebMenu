@@ -21,19 +21,13 @@ import (
 
 	"github.com/gorilla/mux"
 	_ "github.com/nilp0inter/MiSTer_WebMenu/statik"
+	"github.com/nilp0inter/MiSTer_WebMenu/system"
+	"github.com/nilp0inter/MiSTer_WebMenu/update"
 	"github.com/rakyll/statik/fs"
 )
 
 // Version is obtained at compile time
 const Version = "<Version>"
-const misterFifo = "/dev/MiSTer_cmd"
-const sdPath = "/media/fat"
-
-var scriptsPath = path.Join(sdPath, "Scripts")
-var cachePath = path.Join(sdPath, ".cache", "WebMenu")
-var coresDBPath = path.Join(cachePath, "cores.json")
-var webMenuSHPath = path.Join(scriptsPath, "webmenu.sh")
-var webMenuSHPathBackup = path.Join(scriptsPath, "webmenu_prev.sh")
 
 var scanMutex = &sync.Mutex{}
 
@@ -88,7 +82,7 @@ func scanCore(path string) (Core, error) {
 	}
 
 	// LPATH
-	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(path), sdPath), "/") {
+	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(path), system.SdPath), "/") {
 		if strings.HasPrefix(d, "_") {
 			c.LogicPath = append(c.LogicPath, strings.TrimLeft(d, "_"))
 		}
@@ -97,11 +91,11 @@ func scanCore(path string) (Core, error) {
 }
 
 func launchGame(path string) error {
-	return ioutil.WriteFile(misterFifo, []byte("load_core "+path), 0644)
+	return ioutil.WriteFile(system.MisterFifo, []byte("load_core "+path), 0644)
 }
 
 func createCache() {
-	os.MkdirAll(cachePath, os.ModePerm)
+	os.MkdirAll(system.CachePath, os.ModePerm)
 }
 
 // Get preferred outbound ip of this machine
@@ -144,7 +138,7 @@ func main() {
 	r.HandleFunc("/api/run", RunCoreWithGame)
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
-	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir(cachePath))))
+	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir(system.CachePath))))
 	r.PathPrefix("/").Handler(http.FileServer(statikFS))
 
 	srv := &http.Server{
@@ -155,6 +149,10 @@ func main() {
 	}
 	log.Fatal(srv.ListenAndServe())
 }
+
+/////////////////////////////////////////////////////////////////////////
+//                                 API                                 //
+/////////////////////////////////////////////////////////////////////////
 
 func GetCurrentVersion(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(Version))
@@ -167,11 +165,11 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 	force, ok := r.URL.Query()["force"]
 	doForce := ok && force[0] == "1"
 
-	if _, err := os.Stat(coresDBPath); doForce || err != nil {
+	if _, err := os.Stat(system.CoresDBPath); doForce || err != nil {
 		// File doesn't exist
 		var cores []Core
 		paths := []string{
-			path.Join(sdPath, "_*/*.rbf"),
+			path.Join(system.SdPath, "_*/*.rbf"),
 		}
 
 		for _, p := range paths {
@@ -193,7 +191,7 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		err = ioutil.WriteFile(coresDBPath, b, 0644)
+		err = ioutil.WriteFile(system.CoresDBPath, b, 0644)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -226,7 +224,7 @@ func PerformUpdate(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Version is mandatory"))
 		return
 	}
-	err := UpdateSystem(version[0])
+	err := update.UpdateSystem(version[0])
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
@@ -235,93 +233,12 @@ func PerformUpdate(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-func Sha256Check(filepath string, sumpath string) error {
-	cmd := exec.Command("/bin/sh", "-c", "sha256sum -c \"${SUM_PATH}\" < \"${FILE_PATH}\"")
-	cmd.Env = append(os.Environ(),
-		"SUM_PATH="+sumpath,
-		"FILE_PATH="+filepath)
-	return cmd.Run()
-}
-
-func DownloadFile(filepath string, url string) error {
-
-	// Get the data
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	// Create the file
-	out, err := os.Create(filepath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	// Write the body to file
-	_, err = io.Copy(out, resp.Body)
-	return err
-}
-
-func CopyFile(src string, dst string) error {
-	input, err := ioutil.ReadFile(src)
-	if err != nil {
-		fmt.Println(err)
-		return err
-	}
-
-	err = ioutil.WriteFile(dst, input, 0644)
-	if err != nil {
-		fmt.Println("Error creating", dst)
-		fmt.Println(err)
-		return err
-	}
-
-	return nil
-}
-
-func UpdateSystem(version string) error {
-	updateChecksum := path.Join(cachePath, "sha256.sum.update")
-	updatewebMenuSHPath := path.Join(cachePath, "webmenu.sh.update")
-	url := "https://github.com/nilp0inter/MiSTer_WebMenu/releases/download/" + version + "/"
-
-	err := DownloadFile(updateChecksum, url+"sha256.sum")
-	defer os.Remove(updateChecksum)
-	if err != nil {
-		return err
-	}
-
-	err = DownloadFile(updatewebMenuSHPath, url+"webmenu.sh")
-	defer os.Remove(updatewebMenuSHPath)
-	if err != nil {
-		return err
-	}
-
-	err = Sha256Check(updatewebMenuSHPath, updateChecksum)
-	if err != nil {
-		return err
-	}
-
-	err = CopyFile(webMenuSHPath, webMenuSHPathBackup)
-	if err != nil {
-		return err
-	}
-
-	err = CopyFile(updatewebMenuSHPath, webMenuSHPath)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 /////////////////////////////////////////////////////////////////////////
 //                               reboot                                //
 /////////////////////////////////////////////////////////////////////////
 
 func PerformWebMenuReboot(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.Command(webMenuSHPath)
+	cmd := exec.Command(system.WebMenuSHPath)
 	go func() {
 		time.Sleep(3 * time.Second)
 		cmd.Run()
