@@ -254,30 +254,28 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 		var cores Cores
 
 		// Scan for RBFs
-		matches, err := filepath.Glob(path.Join(system.SdPath, "_*/*.rbf"))
-		if err != nil {
-			log.Fatalf("Error scanning RBFs: %v", err)
-		}
-		for _, m := range matches {
-			c, err := scanRBF(m)
-			if err != nil {
-				log.Println(err)
-			} else {
-				cores.RBFs = append(cores.RBFs, c)
+		for _, pattern := range []string{"_*/*.rbf", "**/_*/*.rbf"} {
+			matches, _ := filepath.Glob(path.Join(system.SdPath, pattern))
+			for _, m := range matches {
+				c, err := scanRBF(m)
+				if err != nil {
+					log.Println(err)
+				} else {
+					cores.RBFs = append(cores.RBFs, c)
+				}
 			}
 		}
 
 		// Scan for MRAs
-		matches, err = filepath.Glob(path.Join(system.SdPath, "_*/*.mra"))
-		if err != nil {
-			log.Fatalf("Error scanning MRAs: %v", err)
-		}
-		for _, m := range matches {
-			c, err := scanMRA(m)
-			if err != nil {
-				log.Println(err)
-			} else {
-				cores.MRAs = append(cores.MRAs, c)
+		for _, pattern := range []string{"_*/*.mra", "**/_*/*.mra"} {
+			matches, _ := filepath.Glob(path.Join(system.SdPath, pattern))
+			for _, m := range matches {
+				c, err := scanMRA(m)
+				if err != nil {
+					log.Println(err)
+				} else {
+					cores.MRAs = append(cores.MRAs, c)
+				}
 			}
 		}
 

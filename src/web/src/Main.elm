@@ -2,7 +2,6 @@ port module Main exposing (main)
 
 import Html exposing (..)
 import Http
-import Debug
 import Bootstrap.CDN as CDN
 import Bootstrap.CDN as CDN
 import FontAwesome.Styles as Icon
@@ -916,7 +915,7 @@ coreSearch : Model -> Maybe Bool -> (Html Msg)
 coreSearch model match =
     Grid.container [ class "mb-1" ]
         [ Grid.row []
-            [ Grid.col [ Col.sm8 ] [ text (Debug.toString model.currentPath) ]
+            [ Grid.col [ Col.sm8 ] [ ]
             , Grid.col [ Col.sm4
                        , Col.textAlign Text.alignXsRight ]
                   [ Form.form [ ]
