@@ -47,7 +47,6 @@ type MRA struct {
 	Rbf       string   `xml:"rbf" json:"-"`
 	Roms      []struct {
 		Zip string `xml:"zip,attr" json:"zip"`
-		MD5 string `xml:"md5,attr" json:"md5"`
 	} `xml:"rom" json:"roms"`
 	RomsFound bool `json:"roms_found"`
 }
@@ -62,19 +61,19 @@ type RBF struct {
 	MD5       string   `json:"md5"`
 }
 
-func scanMRA(path string) (MRA, error) {
+func scanMRA(filename string) (MRA, error) {
 	var c MRA
 
 	// Path
-	c.Path = path
-	fi, err := os.Stat(path)
+	c.Path = filename
+	fi, err := os.Stat(filename)
 	if err != nil {
 		return c, err
 	}
 	c.Ctime = fi.ModTime().Unix()
 
 	// MD5
-	x, err := ioutil.ReadFile(path)
+	x, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return c, err
 	}
@@ -84,10 +83,11 @@ func scanMRA(path string) (MRA, error) {
 	c.MD5 = fmt.Sprintf("%x", h.Sum(nil))
 
 	// NAME
-	c.Filename = pathlib.Base(path)
+	baseDir := pathlib.Dir(filename)
+	c.Filename = pathlib.Base(filename)
 
 	// LPATH
-	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(path), system.SdPath), "/") {
+	for _, d := range strings.Split(strings.TrimPrefix(baseDir, system.SdPath), "/") {
 		if strings.HasPrefix(d, "_") {
 			c.LogicPath = append(c.LogicPath, strings.TrimLeft(d, "_"))
 		}
@@ -102,29 +102,28 @@ func scanMRA(path string) (MRA, error) {
 	rp := 0
 	for i := 0; i < len(c.Roms) && c.RomsFound; i++ {
 		rom := c.Roms[i]
-		if rom.MD5 == "" {
-			continue
-		}
-
-		if rom.Zip == "" || rom.MD5 == "" {
+		if rom.Zip == "" {
 			continue
 		}
 		c.Roms[rp] = rom
 		rp++
 		thisFound := false
 		for _, zip := range strings.Split(rom.Zip, "|") {
-			x, err := ioutil.ReadFile(zip)
-			if err != nil {
-				continue
+			_, err := os.Stat(path.Join(baseDir, zip))
+			if err == nil {
+				thisFound = true
+				break
 			}
-
-			h = md5.New()
-			h.Sum(x)
-			if rom.MD5 != fmt.Sprintf("%x", h.Sum(nil)) {
-				continue
+			_, err = os.Stat(path.Join(baseDir, "mame", zip))
+			if err == nil {
+				thisFound = true
+				break
 			}
-			thisFound = true
-			break
+			_, err = os.Stat(path.Join(baseDir, "hbmame", zip))
+			if err == nil {
+				thisFound = true
+				break
+			}
 		}
 		c.RomsFound = c.RomsFound && thisFound
 	}
@@ -133,19 +132,19 @@ func scanMRA(path string) (MRA, error) {
 	return c, nil
 }
 
-func scanRBF(path string) (RBF, error) {
+func scanRBF(filename string) (RBF, error) {
 	var c RBF
 
 	// Path
-	c.Path = path
-	fi, err := os.Stat(path)
+	c.Path = filename
+	fi, err := os.Stat(filename)
 	if err != nil {
 		return c, err
 	}
 	c.Ctime = fi.ModTime().Unix()
 
 	// MD5
-	f, err := os.Open(path)
+	f, err := os.Open(filename)
 	if err != nil {
 		return c, err
 	}
@@ -158,7 +157,7 @@ func scanRBF(path string) (RBF, error) {
 	c.MD5 = fmt.Sprintf("%x", h.Sum(nil))
 
 	// NAME
-	c.Filename = pathlib.Base(path)
+	c.Filename = pathlib.Base(filename)
 
 	re := regexp.MustCompile(`^([^_]+)_(\d{8})[^\.]*\.rbf$`)
 	matches := re.FindStringSubmatch(c.Filename)
@@ -168,7 +167,7 @@ func scanRBF(path string) (RBF, error) {
 	}
 
 	// LPATH
-	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(path), system.SdPath), "/") {
+	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(filename), system.SdPath), "/") {
 		if strings.HasPrefix(d, "_") {
 			c.LogicPath = append(c.LogicPath, strings.TrimLeft(d, "_"))
 		}
@@ -176,8 +175,8 @@ func scanRBF(path string) (RBF, error) {
 	return c, nil
 }
 
-func launchGame(path string) error {
-	return ioutil.WriteFile(system.MisterFifo, []byte("load_core "+path), 0644)
+func launchGame(filename string) error {
+	return ioutil.WriteFile(system.MisterFifo, []byte("load_core "+filename), 0644)
 }
 
 func createCache() {
