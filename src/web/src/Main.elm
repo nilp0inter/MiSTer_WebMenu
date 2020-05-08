@@ -960,7 +960,7 @@ coreTab m cs path =
 
 emptyCard =
     Card.config [ Card.outlineSecondary
-                , Card.attrs [] ]
+                , Card.attrs [ class "emptycard" ] ]
 
 isInPath : List String -> Core -> Bool
 isInPath p x =
@@ -1040,7 +1040,11 @@ gameLauncher model title imgLink body core game lpath =
     let
         imgSrc = ifNotMissing model imgLink
         head = if imgSrc == ""
-               then [ p [ class "text-muted" , class "text-center" ] [ text "No image available" ] ]
+               then [ p [ class "text-muted"
+                        , class "d-flex"
+                        , class "justify-content-center"
+                        , class "align-items-center"
+                        , class "corenoimg" ] [ text "No image available" ] ]
                else [ img [ src imgSrc
                           , class "coreimg"
                           , class "rounded"
@@ -1051,7 +1055,9 @@ gameLauncher model title imgLink body core game lpath =
                     ]
             |> Card.block [ Block.attrs [ class "text-center" ] ]
                 [ Block.text [] (head ++ [ h5 [ Spacing.mt2 ] [ text title ] ]) ]
-            |> Card.block [ Block.attrs [ height 220 ] ] body
+            |> Card.block [ Block.attrs [ class "d-flex"
+                                        , class "align-content-end"
+                                        , class "flex-wrap" ] ] body
             |> Card.footer [ class "text-right" ] [
                     Button.button [ Button.primary
                                   , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game lpath)) ] [ text "Load" ]]
