@@ -226,6 +226,7 @@ type alias Model =
     , updateStatus : UpdateStatus
 
     , missingThumbnails : List String
+    , currentPath : List String
 
     }
 
@@ -274,6 +275,7 @@ init flags url key =
                           , latestRelease = ""
                           , updateStatus = NotReady
                           , missingThumbnails = []
+                          , currentPath = []
                           }
     
     in
@@ -890,15 +892,15 @@ pageCoresPageContent model =
                         Nothing -> Nothing
                         Just _ -> Just (not (List.isEmpty filtered))
             in
-                [ coreSearch matches
+                [ coreSearch model matches
                 , if List.isEmpty filtered
                   then (p [ ] [ text "Your search did not match any cores :(" ] )
                   else coreTabs model filtered
                 ]
 
 
-coreSearch : Maybe Bool -> (Html Msg)
-coreSearch match =
+coreSearch : Model -> Maybe Bool -> (Html Msg)
+coreSearch model match =
     Grid.container [ class "mb-1" ]
         [ Grid.row []
             [ Grid.col [ Col.sm8 ] [  ]
@@ -939,10 +941,11 @@ getLPath c =
         RBFCore r -> r.lpath
         MRACore m -> m.lpath
 
-partition : a -> List a -> List (List a)
-partition d xs = if List.isEmpty xs
-                 then []
-                 else (List.take 3 (xs ++ (List.repeat 3 d))) :: (partition d (List.drop 3 xs))
+partition : Int -> a -> List a -> List (List a)
+partition n d xs =
+    if List.isEmpty xs
+    then []
+    else (List.take n (xs ++ (List.repeat n d))) :: (partition n d (List.drop n xs))
 
 coreTab : Model -> List Core -> List String -> (Tab.Item Msg)
 coreTab m cs path =
@@ -955,7 +958,7 @@ coreTab m cs path =
                                 , Badge.pillLight [ Spacing.ml2 ] [ text (String.fromInt (List.length filtered)) ] ]
           , pane =
               Tab.pane [ Spacing.mt3 ]
-                  (List.map Card.deck (partition emptyCard (List.map (toGameLauncher m) filtered )))
+                  (List.map Card.deck (partition 3 emptyCard (List.map (toGameLauncher m) filtered )))
           }
 
 emptyCard =
@@ -1006,13 +1009,13 @@ toGameLauncher model c =
         MRACore m -> gameLauncher model m.name (mraImgTop m) (mraCardBlock m) m.filename "" m.path
 
 brfCardBlock m =
-    [ Block.text [] [ p [] [ Badge.badgeInfo [ Spacing.ml1 ] [ text "RBF" ] 
+    [ Block.text [] [ p [] [ Badge.badgeDark [ Spacing.ml1 ] [ text "RBF" ] 
                            ]
                     ]
     ]
 
 mraCardBlock m =
-    [ Block.text [] [ p [] [ Badge.badgeInfo [ Spacing.ml1 ] [ text "MRA" ] 
+    [ Block.text [] [ p [] [ Badge.badgeDark [ Spacing.ml1 ] [ text "MRA" ] 
                            , if m.romsFound
                              then Badge.badgeSuccess [ Spacing.ml1 ] [ text "ROM Found" ]
                              else Badge.badgeWarning [ Spacing.ml1 ] [ text "ROM Missing" ]
@@ -1057,9 +1060,17 @@ gameLauncher model title imgLink body core game lpath =
                 [ Block.text [] (head ++ [ h5 [ Spacing.mt2 ] [ text title ] ]) ]
             |> Card.block [ Block.attrs [ class "d-flex"
                                         , class "align-content-end"
+                                        , class "flex-row"
                                         , class "flex-wrap" ] ] body
-            |> Card.footer [ class "text-right" ] [
-                    Button.button [ Button.primary
-                                  , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game lpath)) ] [ text "Load" ]]
+            |> Card.block [ Block.attrs [ class "d-flex"
+                                        , class "align-content-end"
+                                        , class "flex-row-reverse"
+                                        , class "flex-wrap"
+                                        ] ]
+                          [ Block.custom <|
+                              Button.button
+                                  [ Button.primary
+                                  , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game lpath)) ] [ text "Load" ]
+                          ]
     
 
