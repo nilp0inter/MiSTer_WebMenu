@@ -2,6 +2,7 @@ port module Main exposing (main)
 
 import Html exposing (..)
 import Http
+import Debug
 import Bootstrap.CDN as CDN
 import Bootstrap.CDN as CDN
 import FontAwesome.Styles as Icon
@@ -46,6 +47,18 @@ port reload : () -> Cmd msg
 type Core =
       RBFCore RBF
     | MRACore MRA
+
+coreBiMap : (MRA -> a) -> (RBF -> a) -> Core -> a
+coreBiMap f g core =
+    case core of
+      MRACore c -> f c
+      RBFCore c -> g c
+
+cLpath = coreBiMap .lpath .lpath
+cName = coreBiMap .name .codename
+cFilename = coreBiMap .filename .filename
+cPath = coreBiMap .path .path
+
 
 type UpdateStatus =
       NotReady
@@ -903,7 +916,7 @@ coreSearch : Model -> Maybe Bool -> (Html Msg)
 coreSearch model match =
     Grid.container [ class "mb-1" ]
         [ Grid.row []
-            [ Grid.col [ Col.sm8 ] [  ]
+            [ Grid.col [ Col.sm8 ] [ text (Debug.toString model.currentPath) ]
             , Grid.col [ Col.sm4
                        , Col.textAlign Text.alignXsRight ]
                   [ Form.form [ ]
@@ -933,13 +946,7 @@ matchCoreByString t c =
        MRACore m -> String.contains (String.toLower t) (String.toLower m.name) || String.contains (String.toLower t) (String.toLower m.filename)
 
 coreSections : List Core -> List (List String)
-coreSections cs = unique (List.map getLPath cs)
-
-getLPath : Core -> List String
-getLPath c =
-    case c of
-        RBFCore r -> r.lpath
-        MRACore m -> m.lpath
+coreSections cs = unique (List.map cLpath cs)
 
 partition : Int -> a -> List a -> List (List a)
 partition n d xs =
@@ -950,7 +957,7 @@ partition n d xs =
 coreTab : Model -> List Core -> List String -> (Tab.Item Msg)
 coreTab m cs path =
     let 
-        filtered = (List.filter (isInPath path) cs)
+        filtered = (List.filter (((==)path) << cLpath) cs)
     in 
         Tab.item
           { id = String.join "/" path
@@ -958,19 +965,12 @@ coreTab m cs path =
                                 , Badge.pillLight [ Spacing.ml2 ] [ text (String.fromInt (List.length filtered)) ] ]
           , pane =
               Tab.pane [ Spacing.mt3 ]
-                  (List.map Card.deck (partition 3 emptyCard (List.map (toGameLauncher m) filtered )))
+                  (List.map Card.deck (partition 3 emptyCard (List.map (coreCard m) filtered )))
           }
 
 emptyCard =
     Card.config [ Card.outlineSecondary
                 , Card.attrs [ class "emptycard" ] ]
-
-isInPath : List String -> Core -> Bool
-isInPath p x =
-    case x of
-        RBFCore r -> r.lpath == p
-        MRACore m -> m.lpath == p
-
 
 waitForSync : List (Html Msg)
 waitForSync = [
@@ -1001,76 +1001,58 @@ coreSyncButton = [
         |> Card.view
     ]
 
+cardBadge : (List (Attribute msg) -> List (Html Msg) -> Html Msg) -> String -> Html Msg
+cardBadge bdColor s = bdColor [ Spacing.ml1 ] [ text s ]
 
-toGameLauncher : Model -> Core -> (Card.Config Msg)
-toGameLauncher model c =
-    case c of
-        RBFCore r -> gameLauncher model r.codename (rbfImgTop r) (brfCardBlock r) r.filename "" r.path
-        MRACore m -> gameLauncher model m.name (mraImgTop m) (mraCardBlock m) m.filename "" m.path
+rbfCardBlock : RBF -> List (Block.Item Msg)
+rbfCardBlock m =
+    [ Block.text [] [ cardBadge (Badge.badgeDark) "RBF" ] ]
 
-brfCardBlock m =
-    [ Block.text [] [ p [] [ Badge.badgeDark [ Spacing.ml1 ] [ text "RBF" ] 
-                           ]
-                    ]
-    ]
-
+mraCardBlock : MRA -> List (Block.Item Msg)
 mraCardBlock m =
-    [ Block.text [] [ p [] [ Badge.badgeDark [ Spacing.ml1 ] [ text "MRA" ] 
-                           , if m.romsFound
-                             then Badge.badgeSuccess [ Spacing.ml1 ] [ text "ROM Found" ]
-                             else Badge.badgeWarning [ Spacing.ml1 ] [ text "ROM Missing" ]
-                           ]
+    [ Block.text [] [ cardBadge (Badge.badgeDark) "MRA"
+                    , if m.romsFound
+                      then cardBadge (Badge.badgeSuccess) "ROM Found"
+                      else cardBadge (Badge.badgeWarning) "ROM Missing"
                     ]
     ]
 
 ifNotMissing : Model -> String -> String
-ifNotMissing m s = if List.member s m.missingThumbnails
-                   then ""
-                   else s
+ifNotMissing m s = if List.member s m.missingThumbnails then "" else s
 
 rbfImgTop : RBF -> String
-rbfImgTop r = 
-    case (get r.codename coreImages) of
-        Nothing -> ""
-        Just s -> s
+rbfImgTop r = Maybe.withDefault "" <| get r.codename coreImages
 
 mraImgTop : MRA -> String
-mraImgTop m =
-    crossOrigin "https://raw.githubusercontent.com/libretro-thumbnails/MAME/master/Named_Titles" [(percentEncode m.name) ++ ".png"] []
+mraImgTop m = crossOrigin "https://raw.githubusercontent.com/libretro-thumbnails/MAME/master/Named_Titles" [(percentEncode m.name) ++ ".png"] []
 
-gameLauncher : Model -> String -> String -> List (Block.Item Msg) -> String -> String -> String -> (Card.Config Msg)
-gameLauncher model title imgLink body core game lpath =
+
+coreCard : Model -> Core -> (Card.Config Msg)
+coreCard model core =
     let
-        imgSrc = ifNotMissing model imgLink
+        bimap = coreBiMap
+        title = cName core
+        imgSrc = ifNotMissing model <| bimap mraImgTop rbfImgTop core
+        body = bimap mraCardBlock rbfCardBlock core
         head = if imgSrc == ""
-               then [ p [ class "text-muted"
-                        , class "d-flex"
-                        , class "justify-content-center"
-                        , class "align-items-center"
-                        , class "corenoimg" ] [ text "No image available" ] ]
-               else [ img [ src imgSrc
-                          , class "coreimg"
-                          , class "rounded"
-                          , on "error" (D.succeed (MissingThumbnail imgSrc)) ] [] ]
+               then [ p [ class "text-muted", class "d-flex", class "justify-content-center", class "align-items-center", class "corenoimg" ]
+                        [ text "No image available" ] ]
+               else [ img [ src imgSrc, class "coreimg", class "rounded", on "error" (D.succeed (MissingThumbnail imgSrc)) ] [] ]
+        
+        corePath = cFilename core
+        game = ""
+        path = cPath core
+        loadEv = ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame corePath game path)
     in
         Card.config [ Card.outlineSecondary
                     , Card.attrs [ Spacing.mb4 ]
                     ]
             |> Card.block [ Block.attrs [ class "text-center" ] ]
-                [ Block.text [] (head ++ [ h5 [ Spacing.mt2 ] [ text title ] ]) ]
-            |> Card.block [ Block.attrs [ class "d-flex"
-                                        , class "align-content-end"
-                                        , class "flex-row"
-                                        , class "flex-wrap" ] ] body
-            |> Card.block [ Block.attrs [ class "d-flex"
-                                        , class "align-content-end"
-                                        , class "flex-row-reverse"
-                                        , class "flex-wrap"
-                                        ] ]
+                          [ Block.text [] (head ++ [ h5 [ Spacing.mt2 ] [ text title ] ]) ]
+            |> Card.block [ Block.attrs [ class "d-flex", class "align-content-end", class "flex-row", class "flex-wrap" ] ] body
+            |> Card.block [ Block.attrs [ class "d-flex", class "align-content-end", class "flex-row-reverse", class "flex-wrap" ] ]
                           [ Block.custom <|
                               Button.button
                                   [ Button.primary
-                                  , Button.onClick (ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame core game lpath)) ] [ text "Load" ]
+                                  , Button.onClick loadEv ] [ text "Load" ]
                           ]
-    
-
