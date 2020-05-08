@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/karrick/godirwalk"
 	_ "github.com/nilp0inter/MiSTer_WebMenu/statik"
 	"github.com/nilp0inter/MiSTer_WebMenu/system"
 	"github.com/nilp0inter/MiSTer_WebMenu/update"
@@ -253,29 +254,37 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(system.CoresDBPath); doForce || err != nil {
 		var cores Cores
 
-		// Scan for RBFs
-		for _, pattern := range []string{"_*/*.rbf", "**/_*/*.rbf"} {
-			matches, _ := filepath.Glob(path.Join(system.SdPath, pattern))
-			for _, m := range matches {
-				c, err := scanRBF(m)
-				if err != nil {
-					log.Println(err)
-				} else {
-					cores.RBFs = append(cores.RBFs, c)
-				}
-			}
-		}
-
-		// Scan for MRAs
-		for _, pattern := range []string{"_*/*.mra", "**/_*/*.mra"} {
-			matches, _ := filepath.Glob(path.Join(system.SdPath, pattern))
-			for _, m := range matches {
-				c, err := scanMRA(m)
-				if err != nil {
-					log.Println(err)
-				} else {
-					cores.MRAs = append(cores.MRAs, c)
-				}
+		// Scan for RBFs & MRAs
+		topLevels, err := filepath.Glob(path.Join(system.SdPath, "_*"))
+		fmt.Println(topLevels)
+		for _, root := range topLevels {
+			err = godirwalk.Walk(root, &godirwalk.Options{
+				Callback: func(osPathname string, de *godirwalk.Dirent) error {
+					fmt.Printf("%s %s\n", de.ModeType(), osPathname)
+					switch ext := strings.ToLower(pathlib.Ext(osPathname)); ext {
+					case ".rbf":
+						fmt.Printf("RBF: %s\n", osPathname)
+						c, err := scanRBF(osPathname)
+						if err != nil {
+							log.Println(osPathname, err)
+						} else {
+							cores.RBFs = append(cores.RBFs, c)
+						}
+					case ".mra":
+						fmt.Printf("MRA: %s\n", osPathname)
+						c, err := scanMRA(osPathname)
+						if err != nil {
+							log.Println(osPathname, err)
+						} else {
+							cores.MRAs = append(cores.MRAs, c)
+						}
+					}
+					return nil
+				},
+				Unsorted: true,
+			})
+			if err != nil {
+				fmt.Println(err)
 			}
 		}
 
