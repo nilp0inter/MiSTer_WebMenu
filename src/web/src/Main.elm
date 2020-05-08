@@ -8,13 +8,14 @@ import FontAwesome.Styles as Icon
 import FontAwesome.Icon as Icon exposing (Icon)
 import FontAwesome.Solid as Icon
 import Process
+import Html.Events exposing (on)
 import Time
 import Task
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
 import Browser.Navigation as Navigation
 import Browser exposing (UrlRequest)
-import Url exposing (Url)
+import Url exposing (Url, percentEncode)
 import Url.Builder exposing (relative, crossOrigin, string, int)
 import Url.Parser as UrlParser exposing ((</>), Parser, s, top)
 import Bootstrap.Navbar as Navbar
@@ -225,6 +226,9 @@ type alias Model =
     , currentVersion : String
     , latestRelease : String
     , updateStatus : UpdateStatus
+
+    , missingThumbnails : List String
+
     }
 
 type Page
@@ -271,6 +275,7 @@ init flags url key =
                           , currentVersion = ""
                           , latestRelease = ""
                           , updateStatus = NotReady
+                          , missingThumbnails = []
                           }
     
     in
@@ -314,6 +319,8 @@ type Msg
     | GotReboot (Result Http.Error ())
     | GotNewVersion (Result Http.Error String)
     | Reload
+
+    | MissingThumbnail String
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
@@ -469,6 +476,9 @@ update msg model =
                         else (model, checkNewVersion)
                 Err _ ->  (model, checkNewVersion)
 
+        MissingThumbnail x ->
+            ({model | missingThumbnails = (x::model.missingThumbnails)},
+             Cmd.none)
 
 firstJust : Maybe a -> Maybe a -> Maybe a
 firstJust l r =
@@ -912,7 +922,7 @@ coreTabs model cs =
         |> Tab.pills
         |> Tab.center
         |> Tab.withAnimation
-        |> Tab.items (List.map (coreTab cs) (coreSections cs))
+        |> Tab.items (List.map (coreTab model cs) (coreSections cs))
         |> Tab.view model.tabState
 
 matchCoreByString : String -> Core -> Bool
@@ -931,8 +941,8 @@ getLPath c =
         MRACore m -> m.lpath
 
 
-coreTab : List Core -> List String -> (Tab.Item Msg)
-coreTab cs path =
+coreTab : Model -> List Core -> List String -> (Tab.Item Msg)
+coreTab m cs path =
     let 
         filtered = (List.filter (isInPath path) cs)
     in 
@@ -942,7 +952,7 @@ coreTab cs path =
                                 , Badge.pillLight [ Spacing.ml2 ] [ text (String.fromInt (List.length filtered)) ] ]
           , pane =
               Tab.pane [ Spacing.mt3 ]
-                  [ Card.columns (List.map toGameLauncher filtered ) ]
+                  [ Card.columns (List.map (toGameLauncher m) filtered ) ]
           }
 
 
@@ -983,11 +993,11 @@ coreSyncButton = [
     ]
 
 
-toGameLauncher : Core -> (Card.Config Msg)
-toGameLauncher c =
+toGameLauncher : Model -> Core -> (Card.Config Msg)
+toGameLauncher model c =
     case c of
-        RBFCore r -> gameLauncher r.codename [] r.filename "" r.path
-        MRACore m -> gameLauncher m.name (mraCardBlock m) m.filename "" m.path
+        RBFCore r -> gameLauncher model r.codename (rbfImgTop r) [] r.filename "" r.path
+        MRACore m -> gameLauncher model m.name (mraImgTop m) (mraCardBlock m) m.filename "" m.path
 
 mraCardBlock m =
     [ Block.text [] [ p [] [ text "Type: MRA" ]
@@ -999,17 +1009,30 @@ mraCardBlock m =
                     ]
     ]
 
-gameLauncher : String -> List (Block.Item Msg) -> String -> String -> String -> (Card.Config Msg)
-gameLauncher title body core game lpath =
+ifNotMissing : Model -> String -> String
+ifNotMissing m s = if List.member s m.missingThumbnails
+                   then ""
+                   else s
+
+rbfImgTop : RBF -> String
+rbfImgTop r = 
+    case (get r.codename coreImages) of
+        Nothing -> ""
+        Just s -> s
+
+mraImgTop : MRA -> String
+mraImgTop m =
+    crossOrigin "https://raw.githubusercontent.com/libretro-thumbnails/MAME/master/Named_Titles" [(percentEncode m.name) ++ ".png"] []
+
+gameLauncher : Model -> String -> String -> List (Block.Item Msg) -> String -> String -> String -> (Card.Config Msg)
+gameLauncher model title imgSrc body core game lpath =
     Card.config [ Card.outlineSecondary
                 , Card.attrs [ ]
                 ]
         |> Card.header [ class "text-center" ] [ text title ]
-        |> Card.imgTop [ src (
-               case (get title coreImages) of
-                   Nothing -> ""
-                   Just s -> s ) ] []
-
+        |> Card.imgTop [ src (ifNotMissing model imgSrc)
+                       , on "error" (D.succeed (MissingThumbnail imgSrc))
+                       ] []
         |> Card.block [] body
         |> Card.footer [ ] [
                 Button.button [ Button.primary
