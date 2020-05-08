@@ -14,14 +14,12 @@ import (
 	"os/exec"
 	"path"
 	pathlib "path"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/karrick/godirwalk"
 	_ "github.com/nilp0inter/MiSTer_WebMenu/statik"
 	"github.com/nilp0inter/MiSTer_WebMenu/system"
 	"github.com/nilp0inter/MiSTer_WebMenu/update"
@@ -121,6 +119,16 @@ func scanMRA(filename string) (MRA, error) {
 				break
 			}
 			_, err = os.Stat(path.Join(baseDir, "hbmame", zip))
+			if err == nil {
+				thisFound = true
+				break
+			}
+			_, err = os.Stat(path.Join(system.MamePath, zip))
+			if err == nil {
+				thisFound = true
+				break
+			}
+			_, err = os.Stat(path.Join(system.HBMamePath, zip))
 			if err == nil {
 				thisFound = true
 				break
@@ -244,6 +252,38 @@ func GetCurrentVersion(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(Version))
 }
 
+func ScanPath(base string, file os.FileInfo, cores *Cores) {
+	ext := strings.ToLower(pathlib.Ext(file.Name()))
+	isPrefix := strings.HasPrefix(file.Name(), "_")
+	filepath := path.Join(base, file.Name())
+	if file.IsDir() && isPrefix {
+		files, err := ioutil.ReadDir(filepath)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		for _, entry := range files {
+			ScanPath(filepath, entry, cores)
+		}
+	} else if file.Mode().IsRegular() && ext == ".rbf" {
+		fmt.Printf("RBF: %s\n", filepath)
+		c, err := scanRBF(filepath)
+		if err != nil {
+			log.Println(filepath, err)
+		} else {
+			cores.RBFs = append(cores.RBFs, c)
+		}
+	} else if file.Mode().IsRegular() && ext == ".mra" {
+		fmt.Printf("MRA: %s\n", filepath)
+		c, err := scanMRA(filepath)
+		if err != nil {
+			log.Println(filepath, err)
+		} else {
+			cores.MRAs = append(cores.MRAs, c)
+		}
+	}
+}
+
 func ScanForCores(w http.ResponseWriter, r *http.Request) {
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
@@ -255,36 +295,10 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 		var cores Cores
 
 		// Scan for RBFs & MRAs
-		topLevels, err := filepath.Glob(path.Join(system.SdPath, "_*"))
-		fmt.Println(topLevels)
+		topLevels, err := ioutil.ReadDir(system.SdPath)
 		for _, root := range topLevels {
-			err = godirwalk.Walk(root, &godirwalk.Options{
-				Callback: func(osPathname string, de *godirwalk.Dirent) error {
-					fmt.Printf("%s %s\n", de.ModeType(), osPathname)
-					switch ext := strings.ToLower(pathlib.Ext(osPathname)); ext {
-					case ".rbf":
-						fmt.Printf("RBF: %s\n", osPathname)
-						c, err := scanRBF(osPathname)
-						if err != nil {
-							log.Println(osPathname, err)
-						} else {
-							cores.RBFs = append(cores.RBFs, c)
-						}
-					case ".mra":
-						fmt.Printf("MRA: %s\n", osPathname)
-						c, err := scanMRA(osPathname)
-						if err != nil {
-							log.Println(osPathname, err)
-						} else {
-							cores.MRAs = append(cores.MRAs, c)
-						}
-					}
-					return nil
-				},
-				Unsorted: true,
-			})
-			if err != nil {
-				fmt.Println(err)
+			if strings.HasPrefix(root.Name(), "_") {
+				ScanPath(system.SdPath, root, &cores)
 			}
 		}
 
