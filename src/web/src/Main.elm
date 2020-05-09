@@ -11,6 +11,8 @@ import Process
 import Html.Events exposing (on)
 import Time
 import Task
+import Tree as T
+import TreeView as TV
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
 import Browser.Navigation as Navigation
@@ -39,7 +41,7 @@ import Bootstrap.Text as Text
 import Bootstrap.Spinner as Spinner
 import Json.Decode as D
 import Dict exposing (Dict, get)
-import List.Extra exposing (unique)
+import List.Extra exposing (unique, foldl1, foldr1)
 
 port reload : () -> Cmd msg
 
@@ -240,6 +242,7 @@ type alias Model =
     , missingThumbnails : List String
     , currentPath : List String
 
+    , treeViewModel : TV.Model CoreFolder String Never ()
     }
 
 type Page
@@ -260,6 +263,9 @@ main =
         , onUrlRequest = ClickedLink
         , onUrlChange = UrlChange
         }
+
+type alias CoreFolder = { label : String
+                        , path : List String}
 
 init : Flags -> Url -> Navigation.Key -> ( Model, Cmd Msg )
 init flags url key =
@@ -288,6 +294,7 @@ init flags url key =
                           , updateStatus = NotReady
                           , missingThumbnails = []
                           , currentPath = []
+                          , treeViewModel = TV.initializeModel configuration []
                           }
     
     in
@@ -333,11 +340,13 @@ type Msg
     | Reload
 
     | MissingThumbnail String
+    | TreeViewMsg (TV.Msg String)
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Navbar.subscriptions model.navState NavMsg
+        , Sub.map TreeViewMsg (TV.subscriptions model.treeViewModel)
         , Tab.subscriptions model.tabState TabMsg ]
 
 
@@ -390,7 +399,11 @@ update msg model =
 
         GotCores c ->
             case c of
-                Ok cs -> ( { model | waiting = model.waiting - 1, cores = cs }, Cmd.none )
+                Ok cs -> ( { model | waiting = model.waiting - 1
+                                   , treeViewModel = TV.collapseAll <| TV.initializeModel configuration (buildNodes <| Maybe.withDefault [] cs)
+                                   , cores = cs
+                                   }
+                         , Cmd.none )
                 Err (Http.BadStatus 404) -> ( { model | waiting = model.waiting-1, cores = Nothing }, Cmd.none )
                 Err e -> ( { model | waiting = model.waiting - 1
                                    , messages = (newPanel Error "Error parsing cores" (errorToString e)) :: model.messages  }, Cmd.none )
@@ -491,6 +504,11 @@ update msg model =
         MissingThumbnail x ->
             ({model | missingThumbnails = (x::model.missingThumbnails)},
              Cmd.none)
+
+        TreeViewMsg tvm ->
+            ( {model | treeViewModel=TV.update tvm model.treeViewModel}
+            , Cmd.none)
+
 
 firstJust : Maybe a -> Maybe a -> Maybe a
 firstJust l r =
@@ -705,7 +723,6 @@ menu model =
       Navbar.config NavMsg
           |> Navbar.withAnimation
           |> Navbar.dark
-          |> Navbar.container
           |> Navbar.collapseSmall
           |> Navbar.brand [ class "text-white" ] [ strong [] [ text "MiSTer" ] ]
           |> Navbar.items
@@ -884,9 +901,10 @@ modal model =
 -------------------------------------------------------------------------
 
 pageCoresPage : Model -> List (Html Msg)
-pageCoresPage model = [ sectionHeading "Cores" "Search your core collection and launch individual cores with a click" ] ++ (pageCoresPageContent model)
+pageCoresPage model = [ sectionHeading "Cores" "Search your core collection and launch individual cores with a click" 
+                      , pageCoresPageContent model ]
 
-pageCoresPageContent : Model -> List (Html Msg)
+pageCoresPageContent : Model -> Html Msg
 pageCoresPageContent model =
     case model.cores of
         Nothing ->
@@ -903,15 +921,83 @@ pageCoresPageContent model =
                     case model.coreFilter of
                         Nothing -> Nothing
                         Just _ -> Just (not (List.isEmpty filtered))
+                content =
+                    if List.isEmpty filtered
+                    then (p [ ] [ text "Your search did not match any cores :(" ] )
+                    else coreTabs model filtered
             in
-                [ coreSearch model matches
-                , if List.isEmpty filtered
-                  then (p [ ] [ text "Your search did not match any cores :(" ] )
-                  else coreTabs model filtered
-                ]
+                Grid.container []
+                    [ Grid.row []
+                        [ Grid.col [ Col.sm3 ] [ (Html.map TreeViewMsg (TV.view model.treeViewModel)) ]
+                        , Grid.col [ Col.sm9] (coreContent model filtered)
+                        ]
+                    ]
+
+nodeLabel : T.Node CoreFolder -> String
+nodeLabel (T.Node node) = node.data.label
+
+nodeUid : T.Node CoreFolder -> TV.NodeUid String
+nodeUid (T.Node node) = TV.NodeUid <| (String.join "/" node.data.path) ++ node.data.label
+
+singleton : List String -> String -> T.Node CoreFolder
+singleton p x = T.Node {data={label=x, path=p}, children=[]}
 
 
-coreSearch : Model -> Maybe Bool -> (Html Msg)
+treeFromList : List String -> List String -> Maybe (T.Node CoreFolder)
+treeFromList p ss = 
+    case ss of 
+        [] -> Nothing
+        (x::xs) -> Just <| T.Node { data={label=x, path=p}
+                                  , children=Maybe.withDefault [] (Maybe.map List.singleton (treeFromList (p++[x]) xs))}
+
+configuration : TV.Configuration CoreFolder String
+configuration =
+    TV.Configuration
+        nodeUid  -- to construct node UIDs
+        nodeLabel  -- to render node (data) to text
+        TV.defaultCssClasses  -- CSS classes to use
+
+buildNodes : List Core -> List (T.Node CoreFolder)
+buildNodes cs = cs |> List.map cLpath
+                   |> unique
+                   |> List.filterMap (treeFromList [])
+                   |> List.foldl (mergeForest) []
+
+getMatching : a -> List (T.Node a) -> List (T.Node a) -> Maybe (T.Node a, List (T.Node a))
+getMatching l prev post =
+    case post of
+        [] -> Nothing
+        (x::xs2) ->
+            if (T.dataOf x) == l
+            then Just (x, prev ++ xs2)
+            else getMatching l (prev++[x]) xs2
+
+mergeForest : T.Node CoreFolder -> List (T.Node CoreFolder) -> List (T.Node CoreFolder)
+mergeForest l xs =
+    let
+        y = (T.dataOf l)
+        ys = T.childrenOf l
+    in
+        case getMatching y [] xs of
+            Nothing -> (l::xs)
+            Just (x, xs2) -> (mergeAdding x l) ++ xs2
+    
+toNode : CoreFolder -> List (T.Node CoreFolder) -> T.Node CoreFolder
+toNode d c = T.Node {data=d, children=c}
+  
+mergeAdding : T.Node CoreFolder -> T.Node CoreFolder -> List (T.Node CoreFolder )
+mergeAdding l r =
+    let
+        x = (T.dataOf l)
+        xs = T.childrenOf l
+        y = (T.dataOf r)
+        ys = T.childrenOf r
+    in
+        if x == y
+        then [toNode x (List.foldl (mergeForest) xs ys)]
+        else [toNode x xs, toNode y ys]
+
+coreSearch : Model -> Maybe Bool -> Html Msg
 coreSearch model match =
     Grid.container [ class "mb-1" ]
         [ Grid.row []
@@ -967,12 +1053,15 @@ coreTab m cs path =
                   (List.map Card.deck (partition 3 emptyCard (List.map (coreCard m) filtered )))
           }
 
+coreContent : Model -> List Core -> List (Html Msg)
+coreContent m cs = List.map Card.deck (partition 3 emptyCard (List.map (coreCard m) cs))
+
 emptyCard =
     Card.config [ Card.outlineSecondary
                 , Card.attrs [ class "emptycard" ] ]
 
-waitForSync : List (Html Msg)
-waitForSync = [
+waitForSync : Html Msg
+waitForSync =
     Card.config [ Card.primary
                 , Card.textColor Text.white ]
         |> Card.block []
@@ -983,10 +1072,9 @@ waitForSync = [
                     Spinner.spinner [ ] [ ]
             ]
         |> Card.view
-    ]
 
-coreSyncButton : List (Html Msg)
-coreSyncButton = [
+coreSyncButton : Html Msg
+coreSyncButton =
     Card.config []
         |> Card.block []
             [ Block.titleH4 [] [ text "No cores yet" ]
@@ -998,7 +1086,6 @@ coreSyncButton = [
                  ] [ text "Scan now" ]
             ]
         |> Card.view
-    ]
 
 cardBadge : (List (Attribute msg) -> List (Html Msg) -> Html Msg) -> String -> Html Msg
 cardBadge bdColor s = bdColor [ Spacing.ml1 ] [ text s ]
