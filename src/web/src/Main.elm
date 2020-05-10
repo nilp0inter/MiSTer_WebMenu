@@ -767,6 +767,7 @@ menu model =
           |> Navbar.withAnimation
           |> Navbar.dark
           |> Navbar.collapseSmall
+          |> Navbar.container
           |> Navbar.brand [ class "text-white" ] [ strong [] [ text "MiSTer" ] ]
           |> Navbar.items
               [ Navbar.itemLink [ href "#cores" ] [ text "Cores" ]
