@@ -412,11 +412,16 @@ update msg model =
 
         GotCores c ->
             case c of
-                Ok cs -> ( { model | waiting = model.waiting - 1
-                                   , treeViewModel = TV.collapseAll <| TV.initializeModel configuration (buildNodes <| Maybe.withDefault [] cs)
-                                   , cores = cs
-                                   }
-                         , Cmd.none )
+                Ok cs ->
+                    let
+                       (treeModel, _) =
+                           TV.expandOnly (firstLevel) <| TV.initializeModel configuration (buildNodes <| Maybe.withDefault [] cs)
+                    in
+                       ( { model | waiting = model.waiting - 1
+                                  , treeViewModel = treeModel
+                                  , cores = cs
+                                  }
+                        , Cmd.none )
                 Err (Http.BadStatus 404) -> ( { model | waiting = model.waiting-1, cores = Nothing }, Cmd.none )
                 Err e -> ( { model | waiting = model.waiting - 1
                                    , messages = (newPanel Error "Error parsing cores" (errorToString e)) :: model.messages  }, Cmd.none )
@@ -442,11 +447,15 @@ update msg model =
 
         FilterCores s ->
             if s == ""
-            then ( { model | coreFilter = Nothing
-                           , treeViewModel = TV.collapseAll model.treeViewModel
-                           , activePageIdx = 0
-                           }
-                 , Cmd.none)
+            then let
+                       (treeModel, _) =
+                           TV.expandOnly (firstLevel) (TV.collapseAll model.treeViewModel)
+                 in
+                       ( { model | coreFilter = Nothing
+                              , treeViewModel = treeModel
+                              , activePageIdx = 0
+                              }
+                       , Cmd.none)
             else let
                        (treeModel, highlit) =
                            TV.expandOnly (matchCoreFolder s) model.treeViewModel
@@ -549,7 +558,7 @@ update msg model =
 
 
 firstLevel : CoreFolder -> Bool
-firstLevel cf = (List.length <| String.indexes "/" cf.label) == 0
+firstLevel cf = (List.length cf.path) == 1
 
 matchCoreFolder : String -> CoreFolder -> Bool
 matchCoreFolder st cf = String.contains st cf.label || List.any (cName >> String.toLower >> String.contains st) cf.content
