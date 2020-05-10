@@ -24,7 +24,6 @@ import Url.Builder exposing (relative, crossOrigin, string, int)
 import Url.Parser as UrlParser exposing ((</>), Parser, s, top)
 import Bootstrap.Navbar as Navbar
 import Bootstrap.General.HAlign as HAlign
--- import Bootstrap.HAlign as HAlign
 import Bootstrap.Pagination as Pagination
 import Bootstrap.Alert as Alert
 import Bootstrap.Badge as Badge
@@ -946,7 +945,7 @@ pageCoresPageContent model =
                     case model.selectedCoreFolder of
                         Nothing -> filteredBySearch
                         Just cf -> List.filter (filterByNode cf) filteredBySearch
-                pages = greedyGroupsOf 90 filtered
+                pages = greedyGroupsOf 90 (List.sortBy cLpath filtered)
                 selectedPage = Maybe.withDefault [ ] (getAt model.activePageIdx pages)
                 activePagination = List.length pages > 1
                 paginationBlock = (if activePagination
