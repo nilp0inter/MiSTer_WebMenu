@@ -111,7 +111,7 @@ func scanMRA(filename string) (MRA, error) {
 		thisFound := false
 	romLoop:
 		for _, zip := range strings.Split(rom.Zip, "|") {
-			parent := filepath.Clean(path.Join(system.SdPath, ".."))
+			parent := filepath.Clean(path.Join(system.SdPath, "..", "..")) //Double .. to include /media/fat
 			for p := baseDir; filepath.Clean(p) != parent; p = path.Join(p, "..") {
 				_, err := os.Stat(path.Join(p, zip))
 				if err == nil {
