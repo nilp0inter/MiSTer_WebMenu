@@ -2,6 +2,7 @@ port module Main exposing (main)
 
 import Html exposing (..)
 import Http
+import Debug
 import Bootstrap.CDN as CDN
 import Bootstrap.CDN as CDN
 import FontAwesome.Styles as Icon
@@ -9,6 +10,7 @@ import FontAwesome.Icon as Icon exposing (Icon)
 import FontAwesome.Solid as Icon
 import Process
 import Html.Events exposing (on)
+import Dict.Extra as DE
 import Time
 import Task
 import Tree as T
@@ -22,8 +24,11 @@ import Url.Builder exposing (relative, crossOrigin, string, int)
 import Url.Parser as UrlParser exposing ((</>), Parser, s, top)
 import Bootstrap.Navbar as Navbar
 import Bootstrap.General.HAlign as HAlign
+-- import Bootstrap.HAlign as HAlign
+import Bootstrap.Pagination as Pagination
 import Bootstrap.Alert as Alert
 import Bootstrap.Badge as Badge
+import Bootstrap.Breadcrumb as Breadcrumb
 import Bootstrap.Grid as Grid
 import Bootstrap.Grid.Col as Col
 import Bootstrap.Card as Card
@@ -41,7 +46,7 @@ import Bootstrap.Text as Text
 import Bootstrap.Spinner as Spinner
 import Json.Decode as D
 import Dict exposing (Dict, get)
-import List.Extra exposing (unique, foldl1, foldr1)
+import List.Extra exposing (unique, foldl1, foldr1, greedyGroupsOf, getAt, stripPrefix)
 
 port reload : () -> Cmd msg
 
@@ -243,6 +248,8 @@ type alias Model =
     , currentPath : List String
 
     , treeViewModel : TV.Model CoreFolder String Never ()
+    , selectedCoreFolder : Maybe CoreFolder
+    , activePageIdx : Int
     }
 
 type Page
@@ -265,6 +272,7 @@ main =
         }
 
 type alias CoreFolder = { label : String
+                        , content : List Core
                         , path : List String}
 
 init : Flags -> Url -> Navigation.Key -> ( Model, Cmd Msg )
@@ -295,6 +303,8 @@ init flags url key =
                           , missingThumbnails = []
                           , currentPath = []
                           , treeViewModel = TV.initializeModel configuration []
+                          , selectedCoreFolder = Nothing
+                          , activePageIdx = 0
                           }
     
     in
@@ -341,6 +351,7 @@ type Msg
 
     | MissingThumbnail String
     | TreeViewMsg (TV.Msg String)
+    | PaginationMsg Int
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
@@ -429,8 +440,19 @@ update msg model =
 
         FilterCores s ->
             if s == ""
-            then ( { model | coreFilter = Nothing }, Cmd.none)
-            else ( { model | coreFilter = Just s }, Cmd.none)
+            then ( { model | coreFilter = Nothing
+                           , treeViewModel = TV.collapseAll model.treeViewModel
+                           , activePageIdx = 0
+                           }
+                 , Cmd.none)
+            else let
+                       (treeModel, highlit) =
+                           TV.expandOnly (matchCoreFolder s) model.treeViewModel
+                 in
+                       ( { model | coreFilter = Just s
+                                 , activePageIdx = 0
+                                 , treeViewModel = treeModel  }
+                        , Cmd.none)
 
 
         GotCurrentVersion x ->
@@ -502,13 +524,26 @@ update msg model =
                 Err _ ->  (model, checkNewVersion)
 
         MissingThumbnail x ->
-            ({model | missingThumbnails = (x::model.missingThumbnails)},
-             Cmd.none)
-
-        TreeViewMsg tvm ->
-            ( {model | treeViewModel=TV.update tvm model.treeViewModel}
+            ( { model | missingThumbnails = (x::model.missingThumbnails) }
             , Cmd.none)
 
+        TreeViewMsg tvm ->
+            let
+                treeView = TV.update tvm model.treeViewModel
+            in
+            ( { model | treeViewModel = treeView
+                      , activePageIdx = 0
+                      , selectedCoreFolder = TV.getSelected treeView |> Maybe.map .node |> Maybe.map T.dataOf }
+            , Cmd.none)
+
+        PaginationMsg i ->
+            ( { model | activePageIdx = i
+              }
+            , Cmd.none )
+
+
+matchCoreFolder : String -> CoreFolder -> Bool
+matchCoreFolder st cf = String.contains st cf.label || List.any (cName >> String.toLower >> String.contains st) cf.content
 
 firstJust : Maybe a -> Maybe a -> Maybe a
 firstJust l r =
@@ -661,8 +696,7 @@ urlUpdate url model =
             ( { model | page = NotFound }, Cmd.none )
 
         Just route ->
-            ( { model | page = route
-                      , coreFilter = Nothing }, Cmd.none )
+            ( { model | page = route }, Cmd.none )
 
 
 decode : Url -> Maybe Page
@@ -771,15 +805,6 @@ sectionHeading title motto =
         ]
 
            
-    -- Card.config [ Card.outlineLight
-    --             , Card.attrs [ Spacing.mb3 ]
-    --             ]
-    --     |> Card.block []
-    --        [ Block.titleH1 [ class "display-4" ] [ text title ]
-    --        , Block.text [] [ p [ class "lead" ] [ text motto ] ]
-    --        ]
-    --     |> Card.view
-
 pageSettingsPage : Model -> List (Html Msg)
 pageSettingsPage model =
     [ sectionHeading "Settings" "WebMenu and MiSTer configuration"
@@ -913,25 +938,56 @@ pageCoresPageContent model =
                 False -> coreSyncButton
         Just cs ->
             let
-                filtered =
+                filteredBySearch =
                     case model.coreFilter of
                         Nothing -> cs
                         Just s -> List.filter (matchCoreByString s) cs
-                matches =
-                    case model.coreFilter of
-                        Nothing -> Nothing
-                        Just _ -> Just (not (List.isEmpty filtered))
-                content =
-                    if List.isEmpty filtered
-                    then (p [ ] [ text "Your search did not match any cores :(" ] )
-                    else coreTabs model filtered
+                filtered =
+                    case model.selectedCoreFolder of
+                        Nothing -> filteredBySearch
+                        Just cf -> List.filter (filterByNode cf) filteredBySearch
+                pages = greedyGroupsOf 90 filtered
+                selectedPage = Maybe.withDefault [ ] (getAt model.activePageIdx pages)
+                activePagination = List.length pages > 1
+                paginationBlock = (if activePagination
+                                  then [ simplePaginationList pages model ]
+                                  else [])
+                pageWithSections = selectedPage |> DE.groupBy cLpath |> Dict.toList
+
             in
                 Grid.container []
                     [ Grid.row []
-                        [ Grid.col [ Col.sm3 ] [ (Html.map TreeViewMsg (TV.view model.treeViewModel)) ]
-                        , Grid.col [ Col.sm9] (coreContent model filtered)
+                        [ Grid.col [ Col.sm3 ] [ coreSearch model
+                                               , Html.map TreeViewMsg (TV.view model.treeViewModel) ]
+                        , Grid.col [ Col.sm9 ] (paginationBlock ++ (List.concat <| List.map (coreFolderContent model) pageWithSections) ++ paginationBlock)
                         ]
                     ]
+
+simplePaginationList : List (List Core) -> Model -> Html Msg
+simplePaginationList pages model =
+    Pagination.defaultConfig
+        |> Pagination.ariaLabel "Pagination"
+        |> Pagination.small
+        |> Pagination.align HAlign.centerXs
+        |> Pagination.itemsList
+            { selectedMsg = PaginationMsg
+            , prevItem = Just <| Pagination.ListItem [] [ text "<<" ]
+            , nextItem = Just <| Pagination.ListItem [] [ text ">>" ]
+            , activeIdx = model.activePageIdx
+            , data = List.range 1 (List.length pages)
+            , itemFn = \idx pcs -> Pagination.ListItem [] [ text (String.fromInt pcs) ]
+            , urlFn = \idx _ -> "#cores"
+            }
+        |> Pagination.view
+
+filterByNode : CoreFolder -> Core -> Bool
+filterByNode cf c =
+    let
+        realPath = Maybe.withDefault [] (List.tail cf.path |> Maybe.map (\xs -> xs ++ [cf.label]))
+    in
+        case stripPrefix realPath (cLpath c) of
+             Nothing -> False
+             Just _ -> True
 
 nodeLabel : T.Node CoreFolder -> String
 nodeLabel (T.Node node) = node.data.label
@@ -939,16 +995,18 @@ nodeLabel (T.Node node) = node.data.label
 nodeUid : T.Node CoreFolder -> TV.NodeUid String
 nodeUid (T.Node node) = TV.NodeUid <| (String.join "/" node.data.path) ++ node.data.label
 
-singleton : List String -> String -> T.Node CoreFolder
-singleton p x = T.Node {data={label=x, path=p}, children=[]}
+singleton : List String -> String -> List Core -> T.Node CoreFolder
+singleton p x cs = T.Node {data={label=x, path=p, content=cs}, children=[]}
 
 
-treeFromList : List String -> List String -> Maybe (T.Node CoreFolder)
-treeFromList p ss = 
+treeFromList : List String -> List String -> List Core -> Maybe (T.Node CoreFolder)
+treeFromList p ss cs = 
     case ss of 
         [] -> Nothing
-        (x::xs) -> Just <| T.Node { data={label=x, path=p}
-                                  , children=Maybe.withDefault [] (Maybe.map List.singleton (treeFromList (p++[x]) xs))}
+        [x] -> Just <| T.Node { data={label=x, path=p, content=cs}
+                              , children=[] }
+        (x::xs) -> Just <| T.Node { data={label=x, path=p, content=[]}
+                                  , children=Maybe.withDefault [] (Maybe.map List.singleton (treeFromList (p++[x]) xs cs))}
 
 configuration : TV.Configuration CoreFolder String
 configuration =
@@ -958,17 +1016,18 @@ configuration =
         TV.defaultCssClasses  -- CSS classes to use
 
 buildNodes : List Core -> List (T.Node CoreFolder)
-buildNodes cs = cs |> List.map cLpath
-                   |> unique
-                   |> List.filterMap (treeFromList [])
+buildNodes cs = cs |> DE.groupBy (\x -> ["SD Card"] ++ (cLpath x))
+                   |> Dict.toList
+                   |> List.reverse
+                   |> List.filterMap (\(ss, cc) -> treeFromList [] ss cc)
                    |> List.foldl (mergeForest) []
 
-getMatching : a -> List (T.Node a) -> List (T.Node a) -> Maybe (T.Node a, List (T.Node a))
+getMatching : CoreFolder -> List (T.Node CoreFolder) -> List (T.Node CoreFolder) -> Maybe (T.Node CoreFolder, List (T.Node CoreFolder))
 getMatching l prev post =
     case post of
         [] -> Nothing
         (x::xs2) ->
-            if (T.dataOf x) == l
+            if (T.dataOf x).label == l.label && (T.dataOf x).path == l.path
             then Just (x, prev ++ xs2)
             else getMatching l (prev++[x]) xs2
 
@@ -982,6 +1041,12 @@ mergeForest l xs =
             Nothing -> (l::xs)
             Just (x, xs2) -> (mergeAdding x l) ++ xs2
     
+mergeFolder : CoreFolder -> CoreFolder -> CoreFolder
+mergeFolder f1 f2 =
+    { label = f1.label
+    , path = f1.path
+    , content = f1.content ++ f2.content }
+
 toNode : CoreFolder -> List (T.Node CoreFolder) -> T.Node CoreFolder
 toNode d c = T.Node {data=d, children=c}
   
@@ -993,27 +1058,19 @@ mergeAdding l r =
         y = (T.dataOf r)
         ys = T.childrenOf r
     in
-        if x == y
-        then [toNode x (List.foldl (mergeForest) xs ys)]
+        if x.label == y.label && x.path == y.path
+        then [toNode (mergeFolder x y) (List.foldl (mergeForest) xs ys)]
         else [toNode x xs, toNode y ys]
 
-coreSearch : Model -> Maybe Bool -> Html Msg
-coreSearch model match =
-    Grid.container [ class "mb-1" ]
-        [ Grid.row []
-            [ Grid.col [ Col.sm8 ] [ ]
-            , Grid.col [ Col.sm4
-                       , Col.textAlign Text.alignXsRight ]
-                  [ Form.form [ ]
-                       [ InputGroup.config
-                             (InputGroup.text [ Input.attrs [ onInput FilterCores ] ])
-                             |> InputGroup.predecessors
-                                 [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
-                             |> InputGroup.view
-                       ]
-                  ]
-            ]
-        ]
+coreSearch : Model -> Html Msg
+coreSearch model =
+    Form.form [ class "mb-4" ]
+       [ InputGroup.config
+             (InputGroup.text [ Input.attrs [ onInput FilterCores ] ])
+             |> InputGroup.predecessors
+                 [ InputGroup.span [ ] [ span [] [ Icon.viewIcon Icon.search ] ] ]
+             |> InputGroup.view
+       ]
 
 coreTabs : Model -> List Core -> Html Msg
 coreTabs model cs =
@@ -1052,6 +1109,14 @@ coreTab m cs path =
               Tab.pane [ Spacing.mt3 ]
                   (List.map Card.deck (partition 3 emptyCard (List.map (coreCard m) filtered )))
           }
+
+brFromPath : List String -> Html Msg
+brFromPath ps =
+    Breadcrumb.container <|
+        List.map (\x -> Breadcrumb.item [] [ text x ]) ps
+
+coreFolderContent : Model -> (List String, List Core) -> List (Html Msg)
+coreFolderContent m (path, cs) = [ brFromPath path ] ++ coreContent m cs
 
 coreContent : Model -> List Core -> List (Html Msg)
 coreContent m cs = List.map Card.deck (partition 3 emptyCard (List.map (coreCard m) cs))
