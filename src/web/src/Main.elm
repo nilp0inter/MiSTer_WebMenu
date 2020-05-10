@@ -1219,5 +1219,6 @@ coreCard model core =
             |> Card.footer [ class "bg-primary"
                            , class "text-center"
                            , class "text-white"
+                           , class "runbutton"
                            , on "click" (D.succeed (loadEv)) ] [ text "Run" ]
                            
