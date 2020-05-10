@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path"
 	pathlib "path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -45,7 +46,8 @@ type MRA struct {
 	Name      string   `json:"name" xml:"name"`
 	Rbf       string   `xml:"rbf" json:"-"`
 	Roms      []struct {
-		Zip string `xml:"zip,attr" json:"zip"`
+		Zip   string `xml:"zip,attr" json:"zip"`
+		Index string `xml:"index,attr" json:"-"`
 	} `xml:"rom" json:"roms"`
 	RomsFound bool `json:"roms_found"`
 }
@@ -97,44 +99,38 @@ func scanMRA(filename string) (MRA, error) {
 		return c, err
 	}
 
-	c.RomsFound = true
+	c.RomsFound = len(c.Roms) == 0
 	rp := 0
-	for i := 0; i < len(c.Roms) && c.RomsFound; i++ {
+	for i := 0; i < len(c.Roms); i++ {
 		rom := c.Roms[i]
-		if rom.Zip == "" {
+		if rom.Zip == "" || rom.Index != "0" {
 			continue
 		}
 		c.Roms[rp] = rom
 		rp++
 		thisFound := false
+	romLoop:
 		for _, zip := range strings.Split(rom.Zip, "|") {
-			_, err := os.Stat(path.Join(baseDir, zip))
-			if err == nil {
-				thisFound = true
-				break
-			}
-			_, err = os.Stat(path.Join(baseDir, "mame", zip))
-			if err == nil {
-				thisFound = true
-				break
-			}
-			_, err = os.Stat(path.Join(baseDir, "hbmame", zip))
-			if err == nil {
-				thisFound = true
-				break
-			}
-			_, err = os.Stat(path.Join(system.MamePath, zip))
-			if err == nil {
-				thisFound = true
-				break
-			}
-			_, err = os.Stat(path.Join(system.HBMamePath, zip))
-			if err == nil {
-				thisFound = true
-				break
+			parent := filepath.Clean(path.Join(system.SdPath, ".."))
+			for p := baseDir; filepath.Clean(p) != parent; p = path.Join(p, "..") {
+				_, err := os.Stat(path.Join(p, zip))
+				if err == nil {
+					thisFound = true
+					break romLoop
+				}
+				_, err = os.Stat(path.Join(p, "mame", zip))
+				if err == nil {
+					thisFound = true
+					break romLoop
+				}
+				_, err = os.Stat(path.Join(p, "hbmame", zip))
+				if err == nil {
+					thisFound = true
+					break romLoop
+				}
 			}
 		}
-		c.RomsFound = c.RomsFound && thisFound
+		c.RomsFound = c.RomsFound || thisFound
 	}
 	c.Roms = c.Roms[:rp]
 
