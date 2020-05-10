@@ -42,16 +42,12 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
 
 ## Roadmap
 
-- [x] Collection of installed cores
-  - [x] Scan SD for cores
+- [x] Collection of installed cores & MRA
+  - [x] Scan SD for cores & MRA
   - [x] List by category
   - [x] Search by name
-  - [x] Launch cores from the web interface
+  - [x] Launch them from the web interface
 - [x] Auto-update
-- [x] Collection of installed MRA
-  - [x] Scan SD for MRA files
-  - [x] Search by name
-  - [x] Launch MRA files from the web interface
 - [ ] Collection of installed roms
   - [ ] Scan SD for games
   - [ ] Filter by metadata (name, platform, genre, favourite...)
