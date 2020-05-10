@@ -61,7 +61,7 @@ coreBiMap f g core =
       RBFCore c -> g c
 
 cLpath = coreBiMap .lpath .lpath
-cName = coreBiMap .name .codename
+cName = coreBiMap (\x -> x.filename |> String.dropRight 4) .codename
 cFilename = coreBiMap .filename .filename
 cPath = coreBiMap .path .path
 
