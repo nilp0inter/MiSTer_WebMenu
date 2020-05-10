@@ -249,6 +249,7 @@ type alias Model =
     , treeViewModel : TV.Model CoreFolder String Never ()
     , selectedCoreFolder : Maybe CoreFolder
     , activePageIdx : Int
+    , selectedCore : Maybe Core
     }
 
 type Page
@@ -304,6 +305,7 @@ init flags url key =
                           , treeViewModel = TV.initializeModel configuration []
                           , selectedCoreFolder = Nothing
                           , activePageIdx = 0
+                          , selectedCore = Nothing
                           }
     
     in
@@ -351,6 +353,7 @@ type Msg
     | MissingThumbnail String
     | TreeViewMsg (TV.Msg String)
     | PaginationMsg Int
+    | SelectCore (Maybe Core)
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
@@ -540,6 +543,13 @@ update msg model =
               }
             , Cmd.none )
 
+        SelectCore mc ->
+            ( { model | selectedCore = mc }
+            , Cmd.none )
+
+
+firstLevel : CoreFolder -> Bool
+firstLevel cf = (List.length <| String.indexes "/" cf.label) == 0
 
 matchCoreFolder : String -> CoreFolder -> Bool
 matchCoreFolder st cf = String.contains st cf.label || List.any (cName >> String.toLower >> String.contains st) cf.content
@@ -903,21 +913,8 @@ modal model =
     Modal.config CloseModal
         |> Modal.small
         |> Modal.h4 [] [ text model.modalTitle ]
-        |> Modal.body []
-            [ Grid.containerFluid []
-                [ Grid.row []
-                    [ Grid.col
-                        [  ]
-                        [ text model.modalBody ]
-                    ]
-                , Grid.row []
-                    [ Grid.col
-                        [  ]
-                        [ Button.button [ Button.warning
-                                        , Button.onClick model.modalAction ] [ text "Proceed" ] ]
-                    ]
-                ]
-            ]
+        |> Modal.body [] [ text model.modalBody ]
+        |> Modal.footer [] [ Button.button [ Button.warning, Button.onClick model.modalAction ] [ text "Proceed" ] ]
         |> Modal.view model.modalVisibility
 
 -------------------------------------------------------------------------
@@ -1154,18 +1151,17 @@ coreSyncButton =
 cardBadge : (List (Attribute msg) -> List (Html Msg) -> Html Msg) -> String -> Html Msg
 cardBadge bdColor s = bdColor [ Spacing.ml1 ] [ text s ]
 
-rbfCardBlock : RBF -> List (Block.Item Msg)
+rbfCardBlock : RBF -> Block.Item Msg
 rbfCardBlock m =
-    [ Block.text [] [ cardBadge (Badge.badgeDark) "RBF" ] ]
+    Block.text [] [ cardBadge (Badge.badgeDark) "RBF" ]
 
-mraCardBlock : MRA -> List (Block.Item Msg)
+mraCardBlock : MRA -> Block.Item Msg
 mraCardBlock m =
-    [ Block.text [] [ cardBadge (Badge.badgeDark) "MRA"
-                    , if m.romsFound
-                      then cardBadge (Badge.badgeSuccess) "ROM Found"
-                      else cardBadge (Badge.badgeWarning) "ROM Missing"
-                    ]
-    ]
+    Block.text [] [ cardBadge (Badge.badgeDark) "MRA"
+                  , if m.romsFound
+                    then cardBadge (Badge.badgeSuccess) "ROM Found"
+                    else cardBadge (Badge.badgeWarning) "ROM Missing"
+                  ]
 
 ifNotMissing : Model -> String -> String
 ifNotMissing m s = if List.member s m.missingThumbnails then "" else s
@@ -1184,25 +1180,34 @@ coreCard model core =
         title = cName core
         imgSrc = ifNotMissing model <| bimap mraImgTop rbfImgTop core
         body = bimap mraCardBlock rbfCardBlock core
-        head = if imgSrc == ""
-               then [ p [ class "text-muted", class "d-flex", class "justify-content-center", class "align-items-center", class "corenoimg" ]
-                        [ text "No image available" ] ]
-               else [ img [ src imgSrc, class "coreimg", class "rounded", on "error" (D.succeed (MissingThumbnail imgSrc)) ] [] ]
+        thumbnail =
+            if imgSrc == ""
+            then Card.block [ Block.attrs [ class "text-muted", class "d-flex", class "justify-content-center", class "align-items-center", class "corenoimg" ] ]
+                            [ Block.text [] [ text "No image available" ] ]
+            else Card.imgTop [ src imgSrc, on "error" (D.succeed (MissingThumbnail imgSrc)) ] []
         
         corePath = cFilename core
         game = ""
         path = cPath core
         loadEv = ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame corePath game path)
+        selected = if model.selectedCore == Just core
+                   then [ Block.light ]
+                   else []
     in
         Card.config [ Card.outlineSecondary
-                    , Card.attrs [ Spacing.mb4 ]
-                    ]
-            |> Card.block [ Block.attrs [ class "text-center" ] ]
-                          [ Block.text [] (head ++ [ h5 [ Spacing.mt2 ] [ text title ] ]) ]
-            |> Card.block [ Block.attrs [ class "d-flex", class "align-content-end", class "flex-row", class "flex-wrap" ] ] body
-            |> Card.block [ Block.attrs [ class "d-flex", class "align-content-end", class "flex-row-reverse", class "flex-wrap" ] ]
-                          [ Block.custom <|
-                              Button.button
-                                  [ Button.primary
-                                  , Button.onClick loadEv ] [ text "Load" ]
-                          ]
+                    , Card.attrs [ Spacing.mb4
+                                 , on "mouseenter" (D.succeed (SelectCore <| Just core))
+                                 , on "mouseleave" (D.succeed (SelectCore Nothing))
+                                 ] ]
+            |> Card.header [ class "text-center" ] [ text title ]
+            |> thumbnail
+            |> Card.block ([ Block.attrs [ class "d-flex"
+                                         , class "align-content-end"
+                                         , class "flex-row"
+                                         , class "flex-wrap" ] ] ++ selected)
+                          [ body ]
+            |> Card.footer [ class "bg-primary"
+                           , class "text-center"
+                           , class "text-white"
+                           , on "click" (D.succeed (loadEv)) ] [ text "Run" ]
+                           
