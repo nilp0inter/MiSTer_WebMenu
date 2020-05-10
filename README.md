@@ -47,7 +47,7 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
   - [x] List by category
   - [x] Search by name
   - [x] Launch them from the web interface
-- [x] Auto-update
+- [x] Update from the Web UI
 - [ ] Collection of installed roms
   - [ ] Scan SD for games
   - [ ] Filter by metadata (name, platform, genre, favourite...)
