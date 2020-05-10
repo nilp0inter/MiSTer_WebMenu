@@ -48,10 +48,10 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
   - [x] Search by name
   - [x] Launch cores from the web interface
 - [x] Auto-update
-- [ ] Collection of installed MRA
-  - [ ] Scan SD for MRA files
-  - [ ] Search by name
-  - [ ] Launch MRA files from the web interface
+- [x] Collection of installed MRA
+  - [x] Scan SD for MRA files
+  - [x] Search by name
+  - [x] Launch MRA files from the web interface
 - [ ] Collection of installed roms
   - [ ] Scan SD for games
   - [ ] Filter by metadata (name, platform, genre, favourite...)
