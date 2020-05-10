@@ -211,7 +211,7 @@ func greetUser() {
 	if err != nil {
 		fmt.Println("No connection detected :(")
 	} else {
-		fmt.Printf("Browser to: http://%s\n", ip)
+		fmt.Printf("Browse to: http://%s\n", ip)
 	}
 }
 
