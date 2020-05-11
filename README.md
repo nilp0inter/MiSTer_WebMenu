@@ -44,7 +44,7 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
 
 - [x] Collection of installed cores & MRA
   - [x] Scan SD for cores & MRA
-  - [x] List by category
+  - [x] List by folder
   - [x] Search by name
   - [x] Launch them from the web interface
 - [x] Update from the Web UI
