@@ -16,10 +16,12 @@ import (
 	pathlib "path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bendahl/uinput"
 	"github.com/gorilla/mux"
 	_ "github.com/nilp0inter/MiSTer_WebMenu/statik"
 	"github.com/nilp0inter/MiSTer_WebMenu/system"
@@ -213,6 +215,9 @@ func greetUser() {
 
 func main() {
 
+	// always do this after the initialization in order to guarantee that the device will be properly closed
+	// defer keyboard.Close()
+
 	greetUser()
 	createCache()
 
@@ -226,6 +231,7 @@ func main() {
 	r.HandleFunc("/api/webmenu/reboot", PerformWebMenuReboot).Methods("POST")
 	r.HandleFunc("/api/update", PerformUpdate).Methods("POST")
 	r.HandleFunc("/api/run", RunCoreWithGame)
+	r.HandleFunc("/api/input", BuildSendInput())
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
 	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir(system.CachePath))))
@@ -346,4 +352,41 @@ func PerformWebMenuReboot(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(3 * time.Second)
 		cmd.Run()
 	}()
+}
+
+func BuildSendInput() func(http.ResponseWriter, *http.Request) {
+
+	// initialize keyboard and check for possible errors
+	keyboard, err := uinput.CreateKeyboard("/dev/uinput", []byte("WebMenu Virtual Keyboard"))
+	if err != nil {
+		return nil
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		scode, ok := r.URL.Query()["code"]
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Version is mandatory"))
+			return
+		}
+		code, err := strconv.ParseInt(scode[0], 10, 8)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		err = keyboard.KeyDown(int(code))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+		err = keyboard.KeyUp(int(code))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+	}
 }
