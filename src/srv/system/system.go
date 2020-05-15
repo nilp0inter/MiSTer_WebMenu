@@ -7,6 +7,7 @@ const SdPath = "/media/fat"
 
 var ScriptsPath = path.Join(SdPath, "Scripts")
 var CachePath = path.Join(SdPath, ".cache", "WebMenu")
+var GamesDBPath = path.Join(CachePath, "games")
 var CoresDBPath = path.Join(CachePath, "cores.json")
 var WebMenuSHPath = path.Join(ScriptsPath, "webmenu.sh")
 var WebMenuSHPathBackup = path.Join(ScriptsPath, "webmenu_prev.sh")

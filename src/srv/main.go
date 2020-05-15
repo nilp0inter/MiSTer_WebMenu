@@ -269,7 +269,7 @@ func ScanPath(base string, file os.FileInfo, cores *Cores) {
 	if file.IsDir() && isPrefix {
 		files, err := ioutil.ReadDir(filepath)
 		if err != nil {
-			fmt.Println(err)
+			// fmt.Println(err)
 			return
 		}
 		for _, entry := range files {
@@ -279,7 +279,7 @@ func ScanPath(base string, file os.FileInfo, cores *Cores) {
 		fmt.Printf("RBF: %s\n", filepath)
 		c, err := scanRBF(filepath)
 		if err != nil {
-			log.Println(filepath, err)
+			// log.Println(filepath, err)
 		} else {
 			cores.RBFs = append(cores.RBFs, c)
 		}
@@ -287,7 +287,7 @@ func ScanPath(base string, file os.FileInfo, cores *Cores) {
 		fmt.Printf("MRA: %s\n", filepath)
 		c, err := scanMRA(filepath)
 		if err != nil {
-			log.Println(filepath, err)
+			// log.Println(filepath, err)
 		} else {
 			cores.MRAs = append(cores.MRAs, c)
 		}
@@ -400,30 +400,193 @@ func BuildSendInput() func(http.ResponseWriter, *http.Request) {
 }
 
 func ScanForGames(w http.ResponseWriter, r *http.Request) {
-	path, ok := r.URL.Query()["path"]
+	games := make(chan [3]string)
+	scanPathParam, ok := r.URL.Query()["path"]
 	if !ok {
 		return
 	}
-	err := ScanGames(pathlib.Join(system.SdPath, path[0]))
+
+	scanPath := path.Clean(scanPathParam[0])
+	outputDir := pathlib.Join(system.GamesDBPath, pathlib.Dir(scanPath))
+	os.MkdirAll(outputDir, 0600)
+
+	f, err := os.Create(pathlib.Join(outputDir, pathlib.Base(scanPath)+".jsonl"))
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 		return
 	}
+
+	enc := json.NewEncoder(f)
+
+	go func() {
+		err := ScanGames(scanPath, games)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+	}()
+
+	for game := range games {
+		if err := enc.Encode(&game); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+	}
+
 }
 
-func ScanZipForGames(filename string, file *zip.ReadCloser, db *bolt.DB, crc_ring, size_ring *ring.Ring) error {
+func IsKnownExt(ext string) bool {
+	switch ext {
+	case
+		// TODO: Altair 8800
+		// Apogee
+		"rka", "rkr", "gam",
+		// Apple-II
+		"nib", "dsk", "do", "po",
+		// TODO: Apple-I
+		// Aquarius
+		"bin", "caq",
+		// TODO: Archie
+		// Atari800
+		"atr", "xex", "xfd", "atx",
+		"car", "rom", // "bin",
+		// TODO: AtariST
+		// BBCMicro
+		"vhd",
+		// BK0011M
+		// "bin",
+		// "dsk",
+		// "vhd",
+		// C16
+		"prg",
+		// "bin",
+		"d64",
+		"tap",
+		// C64
+		// "d64",
+		"t64",
+		// "prg",
+		"crt",
+		// "tap",
+		// TODO: Galaksija
+		// Jupiter
+		"ace",
+		// MSX
+		// "vhd",
+		// TODO: MacPlus
+		// TODO: Minimig
+		// TODO: MultiComp
+		// TODO: ORAO
+		// Oric
+		// "dsk",
+		// TODO: PDP1
+		// PET201
+		// "tap",
+		// "prg",
+		// QL
+		"mvd",
+		// SAMCoupe
+		// "dsk",
+		"mgt", "img",
+		// TODO: SharpMZ
+		// Specialist
+		"rks", "od1",
+		// TSConf
+		// "vhd",
+		// TODO: Ti994a
+		// VIC20
+		// "prg",
+		// "crt",
+		"ct?", // ???
+		// "d64",
+		// "tap",
+		// Vector06
+		// "rom",
+		"com", "c00", "edd",
+		"fdd",
+		// TODO: X68000
+		// ZX-Spectrum
+		"trd",
+		// "img",
+		// "dsk",
+		// "mgt",
+		// "tap",
+		"csw", "tzx",
+		"z80",
+		// ZX81
+		"o", "p",
+		// ao486
+		// "img",
+		// "vhd",
+		// ht1080z
+		"cas",
+		// Astrocade
+		// "bin",
+		// Atari2600
+		"a26", // Not from the core
+		// Atari5200
+		// "car",
+		"a52",
+		// "bin",
+		// "rom",
+		// Colecovision
+		"col",
+		// "bin",
+		// "rom",
+		"sg",
+		// GBA
+		"gba",
+		// Gameboy
+		"gbc", "gb",
+		// Genesis
+		// "bin",
+		"gen", "md",
+		// MegaCD
+		"cue",
+		// "bin",
+		// "gen",
+		// "md",
+		// NES
+		"nes", "fds", "nsf",
+		// "bin",
+		// TODO: NeoGeo
+		// Odyssey2
+		// "bin",
+		// SMS
+		"sms",
+		// "sg",
+		"gg",
+		// SNES
+		"sfc", "smc",
+		// "bin",
+		// TurboGrafx16
+		"pce",
+		// "bin",
+		"sgx",
+		// Vectrex
+		// "bin",
+		// "rom",
+		"vec":
+		return true
+	}
+	return false
+}
+
+func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db *bolt.DB, crc_ring, size_ring *ring.Ring, games chan<- [3]string) error {
 	buf_size := make([]byte, 8)
 	for _, zf := range file.File {
 		composePath := filepath.Join(filename, zf.FileHeader.Name)
-		ext := strings.ToLower(filepath.Ext(zf.FileHeader.Name))
-		switch ext {
-		case ".tap", ".tzx", ".z80", ".dsk":
+		ext := strings.TrimLeft(strings.ToLower(filepath.Ext(zf.FileHeader.Name)), ".")
+		if IsKnownExt(ext) {
 			// Check SIZE against bloom
 			binary.LittleEndian.PutUint64(buf_size[:], zf.FileHeader.UncompressedSize64)
 			if !size_ring.Test(buf_size) {
 				// Not a single known file matched size
-				fmt.Println("Skip (size)", composePath)
+				// fmt.Println("Skip (size)", composePath)
+				games <- [3]string{composePath[len(basePath):], "", ""}
 				return nil
 			}
 
@@ -432,7 +595,8 @@ func ScanZipForGames(filename string, file *zip.ReadCloser, db *bolt.DB, crc_rin
 			binary.LittleEndian.PutUint32(buf_crc[:], zf.FileHeader.CRC32)
 			if !crc_ring.Test(buf_crc) {
 				// Not a single known file matched size
-				fmt.Println("Skip (crc32)", composePath)
+				// fmt.Println("Skip (crc32)", composePath)
+				games <- [3]string{composePath[len(basePath):], "", ""}
 				return nil
 			}
 
@@ -453,21 +617,25 @@ func ScanZipForGames(filename string, file *zip.ReadCloser, db *bolt.DB, crc_rin
 				b := tx.Bucket([]byte(md5Bucket))
 				v := b.Get([]byte(fmt.Sprintf("%x", h.Sum(nil))))
 				if v != nil {
-					fmt.Println("Found", composePath, string(v))
+					// fmt.Println("Found", composePath, string(v))
+					values := strings.SplitN(string(v), ";", 2)
+					games <- [3]string{composePath[len(basePath):], values[1], values[0]}
+				} else {
+					games <- [3]string{composePath[len(basePath):], "", ""}
 				}
 				return nil
 			})
 			if err != nil {
 				return err
 			}
-		default:
-			fmt.Println("Skip (extension)", composePath)
 		}
 	}
 	return nil
 }
 
-func ScanGames(path string) error {
+func ScanGames(basePath string, games chan<- [3]string) error {
+
+	defer close(games)
 
 	var bloomBucket = "BLOOM"
 	var md5Bucket = "MD5"
@@ -505,22 +673,17 @@ func ScanGames(path string) error {
 	}
 
 	// Scan path
-	err = fastwalk.Walk(path, func(path string, typ os.FileMode) error {
+	err = fastwalk.Walk(basePath, func(path string, typ os.FileMode) error {
 		if typ.IsDir() {
 			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(path))
-
-		switch ext {
-		case ".zip":
+		} else if ext := strings.TrimLeft(strings.ToLower(filepath.Ext(path)), "."); ext == "zip" {
 			r, err := zip.OpenReader(path)
 			if err != nil {
 				return err
 			}
 			defer r.Close()
-			return ScanZipForGames(path, r, db, crc_ring, size_ring)
-		case ".nes", ".gb":
+			return ScanZipForGames(basePath, path, r, db, crc_ring, size_ring, games)
+		} else if IsKnownExt(ext) {
 			info, err := os.Lstat(path)
 			if err != nil {
 				return err
@@ -529,7 +692,8 @@ func ScanGames(path string) error {
 			binary.LittleEndian.PutUint64(buf_size[:], uint64(info.Size()))
 			if !size_ring.Test(buf_size) {
 				// Not a single known file matched size
-				fmt.Println("Skip (size)", path)
+				// fmt.Println("Skip (size)", path)
+				games <- [3]string{path[len(basePath):], "", ""}
 				return nil
 			}
 
@@ -548,18 +712,17 @@ func ScanGames(path string) error {
 				b := tx.Bucket([]byte(md5Bucket))
 				v := b.Get([]byte(fmt.Sprintf("%x", h.Sum(nil))))
 				if v != nil {
-					fmt.Println("Found", path, string(v))
+					// fmt.Println("Found", path, string(v))
+					values := strings.SplitN(string(v), ";", 2)
+					games <- [3]string{path[len(basePath):], values[1], values[0]}
 				}
 				return nil
 			})
 			if err != nil {
 				return err
 			}
-		default:
-			fmt.Println("Skip (extension)", path)
 		}
 		return nil
-
 	})
 	if err != nil {
 		return err
