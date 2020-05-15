@@ -1,9 +1,12 @@
 package main
 
 import (
+	"archive/zip"
 	"crypto/md5"
+	"encoding/binary"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -21,12 +24,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bendahl/uinput"
-	"github.com/gorilla/mux"
+	"github.com/nilp0inter/MiSTer_WebMenu/fastwalk"
 	_ "github.com/nilp0inter/MiSTer_WebMenu/statik"
 	"github.com/nilp0inter/MiSTer_WebMenu/system"
 	"github.com/nilp0inter/MiSTer_WebMenu/update"
+
+	"github.com/bendahl/uinput"
+	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
+	"github.com/thetannerryan/ring"
+	bolt "go.etcd.io/bbolt"
 )
 
 // Version is obtained at compile time
@@ -234,6 +241,7 @@ func main() {
 	r.HandleFunc("/api/input", BuildSendInput())
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
+	r.HandleFunc("/api/games/scan", ScanForGames)
 	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir(system.CachePath))))
 	r.PathPrefix("/").Handler(http.FileServer(statikFS))
 
@@ -389,4 +397,173 @@ func BuildSendInput() func(http.ResponseWriter, *http.Request) {
 			return
 		}
 	}
+}
+
+func ScanForGames(w http.ResponseWriter, r *http.Request) {
+	path, ok := r.URL.Query()["path"]
+	if !ok {
+		return
+	}
+	err := ScanGames(pathlib.Join(system.SdPath, path[0]))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+}
+
+func ScanZipForGames(filename string, file *zip.ReadCloser, db *bolt.DB, crc_ring, size_ring *ring.Ring) error {
+	buf_size := make([]byte, 8)
+	for _, zf := range file.File {
+		composePath := filepath.Join(filename, zf.FileHeader.Name)
+		ext := strings.ToLower(filepath.Ext(zf.FileHeader.Name))
+		switch ext {
+		case ".tap", ".tzx", ".z80", ".dsk":
+			// Check SIZE against bloom
+			binary.LittleEndian.PutUint64(buf_size[:], zf.FileHeader.UncompressedSize64)
+			if !size_ring.Test(buf_size) {
+				// Not a single known file matched size
+				fmt.Println("Skip (size)", composePath)
+				return nil
+			}
+
+			// Check CRC32 against bloom
+			buf_crc := make([]byte, 4)
+			binary.LittleEndian.PutUint32(buf_crc[:], zf.FileHeader.CRC32)
+			if !crc_ring.Test(buf_crc) {
+				// Not a single known file matched size
+				fmt.Println("Skip (crc32)", composePath)
+				return nil
+			}
+
+			f, err := zf.Open()
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			h := md5.New()
+			if _, err := io.Copy(h, f); err != nil {
+				return err
+			}
+
+			// Check MD5 against bolt
+			var md5Bucket = "MD5"
+			err = db.View(func(tx *bolt.Tx) error {
+				b := tx.Bucket([]byte(md5Bucket))
+				v := b.Get([]byte(fmt.Sprintf("%x", h.Sum(nil))))
+				if v != nil {
+					fmt.Println("Found", composePath, string(v))
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		default:
+			fmt.Println("Skip (extension)", composePath)
+		}
+	}
+	return nil
+}
+
+func ScanGames(path string) error {
+
+	var bloomBucket = "BLOOM"
+	var md5Bucket = "MD5"
+	var crcKey = "crc"
+	var sizeKey = "size"
+
+	db, err := bolt.Open(pathlib.Join(system.CachePath, "databank.db"), 0600, &bolt.Options{ReadOnly: true})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	// Load bloom filters
+	crc_ring := new(ring.Ring)
+	size_ring := new(ring.Ring)
+
+	err = db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bloomBucket))
+		v := b.Get([]byte(crcKey))
+		if v == nil {
+			return errors.New("CRC bloom filter is missing")
+		}
+		crc_ring.UnmarshalBinary(v)
+
+		v = b.Get([]byte(sizeKey))
+		if v == nil {
+			return errors.New("Size bloom filter is missing")
+		}
+		size_ring.UnmarshalBinary(v)
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Scan path
+	err = fastwalk.Walk(path, func(path string, typ os.FileMode) error {
+		if typ.IsDir() {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(path))
+
+		switch ext {
+		case ".zip":
+			r, err := zip.OpenReader(path)
+			if err != nil {
+				return err
+			}
+			defer r.Close()
+			return ScanZipForGames(path, r, db, crc_ring, size_ring)
+		case ".nes", ".gb":
+			info, err := os.Lstat(path)
+			if err != nil {
+				return err
+			}
+			buf_size := make([]byte, 8)
+			binary.LittleEndian.PutUint64(buf_size[:], uint64(info.Size()))
+			if !size_ring.Test(buf_size) {
+				// Not a single known file matched size
+				fmt.Println("Skip (size)", path)
+				return nil
+			}
+
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			h := md5.New()
+			if _, err := io.Copy(h, f); err != nil {
+				return err
+			}
+
+			err = db.View(func(tx *bolt.Tx) error {
+				b := tx.Bucket([]byte(md5Bucket))
+				v := b.Get([]byte(fmt.Sprintf("%x", h.Sum(nil))))
+				if v != nil {
+					fmt.Println("Found", path, string(v))
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		default:
+			fmt.Println("Skip (extension)", path)
+		}
+		return nil
+
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
