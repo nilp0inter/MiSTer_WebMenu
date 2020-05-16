@@ -240,6 +240,7 @@ func main() {
 	r.HandleFunc("/api/run", RunCoreWithGame)
 	r.HandleFunc("/api/input", BuildSendInput())
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
+	r.HandleFunc("/api/folder/scan", ScanForFolders)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
 	r.HandleFunc("/api/games/scan", ScanForGames)
 	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir(system.CachePath))))
@@ -731,4 +732,87 @@ func ScanGames(basePath string, games chan<- [3]string) error {
 	}
 
 	return nil
+}
+
+/////////////////////////////////////////////////////////////////////////
+//                          Folder Structure                           //
+/////////////////////////////////////////////////////////////////////////
+
+type Path struct {
+	FullPath string           `json:"path"`
+	Scanned  bool             `json:"scanned"`
+	Contents map[string]*Path `json:"contents"`
+}
+
+func CreatePath(p string) *Path {
+	return &Path{
+		FullPath: p,
+		Contents: make(map[string]*Path),
+	}
+}
+
+func ScanFolders(basePath string, recursive bool) (*Path, error) {
+	var folderMutex = &sync.Mutex{}
+
+	p := CreatePath("/")
+
+	err := fastwalk.Walk(basePath, func(thisPath string, typ os.FileMode) error {
+		if !typ.IsDir() {
+			return fastwalk.ErrSkipFiles
+		} else if name := path.Base(thisPath); strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+			return filepath.SkipDir
+		}
+		folderMutex.Lock()
+		defer folderMutex.Unlock()
+		currentFp := ""
+		currentP := p
+		for _, comp := range strings.Split(thisPath, "/") {
+			if comp == "" {
+				continue
+			}
+			currentFp += "/" + comp
+			thisP, ok := currentP.Contents[comp]
+			if !ok {
+				thisP = CreatePath(currentFp)
+
+				// Check for game scan jsonlines file
+				info, err := os.Stat(path.Join(system.GamesDBPath, currentFp+".jsonl"))
+				thisP.Scanned = err == nil && info.Mode().IsRegular()
+
+				currentP.Contents[comp] = thisP
+			}
+			currentP = thisP
+		}
+		if !recursive {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	return p, err
+}
+
+func ScanForFolders(w http.ResponseWriter, r *http.Request) {
+	scanMutex.Lock()
+	defer scanMutex.Unlock()
+
+	scanPathParam, ok := r.URL.Query()["path"]
+	if !ok {
+		return
+	}
+
+	p, err := ScanFolders(scanPathParam[0], false)
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	b, err := json.Marshal(p)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	w.Write(b)
 }
