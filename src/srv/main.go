@@ -400,6 +400,8 @@ func BuildSendInput() func(http.ResponseWriter, *http.Request) {
 }
 
 func ScanForGames(w http.ResponseWriter, r *http.Request) {
+	scanMutex.Lock()
+	defer scanMutex.Unlock()
 	games := make(chan [3]string)
 	scanPathParam, ok := r.URL.Query()["path"]
 	if !ok {
