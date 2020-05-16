@@ -64,7 +64,6 @@ cName = coreBiMap (\x -> x.filename |> String.dropRight 4) .codename
 cFilename = coreBiMap .filename .filename
 cPath = coreBiMap .path .path
 
-
 type UpdateStatus =
       NotReady
     | GettingCurrent
@@ -225,7 +224,6 @@ type alias Model =
     , coreFilter : Maybe String
 
     , navState : Navbar.State
-    , tabState : Tab.State
 
     , modalVisibility : Modal.Visibility
     , modalTitle : String
@@ -285,7 +283,6 @@ init flags url key =
             urlUpdate url { navKey = key
                           , coreFilter = Nothing
                           , navState = navState
-                          , tabState = Tab.initialState
                           , page = AboutPage
                           , modalVisibility = Modal.hidden
                           , modalTitle = ""
@@ -321,7 +318,6 @@ type Msg
     = UrlChange Url
     | ClickedLink UrlRequest
     | NavMsg Navbar.State
-    | TabMsg Tab.State
     | CloseModal
     | ShowModal String String Msg
 
@@ -360,7 +356,7 @@ subscriptions model =
     Sub.batch
         [ Navbar.subscriptions model.navState NavMsg
         , Sub.map TreeViewMsg (TV.subscriptions model.treeViewModel)
-        , Tab.subscriptions model.tabState TabMsg ]
+        ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -380,11 +376,6 @@ update msg model =
 
         NavMsg state ->
             ( { model | navState = state }
-            , Cmd.none
-            )
-
-        TabMsg state ->
-            ( { model | tabState = state }
             , Cmd.none
             )
 
@@ -597,12 +588,7 @@ errorToString error =
         Http.BadBody errorMessage ->
             errorMessage
 
-delay : Float -> msg -> Cmd msg
-delay time msg =
-  Process.sleep time
-  |> Task.perform (\_ -> msg)
-
--- rebootBackend : Cmd Msg
+rebootBackend : Cmd Msg
 rebootBackend =
     Task.attempt GotReboot
     (Http.task
@@ -1078,23 +1064,11 @@ coreSearch model =
              |> InputGroup.view
        ]
 
-coreTabs : Model -> List Core -> Html Msg
-coreTabs model cs =
-    Tab.config TabMsg
-        |> Tab.pills
-        |> Tab.center
-        |> Tab.withAnimation
-        |> Tab.items (List.map (coreTab model cs) (coreSections cs))
-        |> Tab.view model.tabState
-
 matchCoreByString : String -> Core -> Bool
 matchCoreByString t c =
    case c of
        RBFCore r -> String.contains (String.toLower t) (String.toLower r.codename)
        MRACore m -> String.contains (String.toLower t) (String.toLower m.name) || String.contains (String.toLower t) (String.toLower m.filename)
-
-coreSections : List Core -> List (List String)
-coreSections cs = unique (List.map cLpath cs)
 
 partition : Int -> a -> List a -> List (List a)
 partition n d xs =
@@ -1102,19 +1076,6 @@ partition n d xs =
     then []
     else (List.take n (xs ++ (List.repeat n d))) :: (partition n d (List.drop n xs))
 
-coreTab : Model -> List Core -> List String -> (Tab.Item Msg)
-coreTab m cs path =
-    let 
-        filtered = (List.filter (((==)path) << cLpath) cs)
-    in 
-        Tab.item
-          { id = String.join "/" path
-          , link = Tab.link [ ] [ text (String.join "/" path)
-                                , Badge.pillLight [ Spacing.ml2 ] [ text (String.fromInt (List.length filtered)) ] ]
-          , pane =
-              Tab.pane [ Spacing.mt3 ]
-                  (List.map Card.deck (partition 3 emptyCard (List.map (coreCard m) filtered )))
-          }
 
 brFromPath : List String -> Html Msg
 brFromPath ps =
