@@ -11,6 +11,8 @@ with import (builtins.fetchTarball {
                     statik
                     elmPackages.elm
                     nodePackages.uglify-js
+                    nodePackages.elm-oracle
+                    elmPackages.elm-format
                     elmPackages.elm-live
                   ];
   };
