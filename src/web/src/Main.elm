@@ -4,14 +4,12 @@ import Html exposing (..)
 import Http
 import Debug
 import Bootstrap.CDN as CDN
-import Bootstrap.CDN as CDN
 import FontAwesome.Styles as Icon
 import FontAwesome.Icon as Icon exposing (Icon)
 import FontAwesome.Solid as Icon
 import Process
 import Html.Events exposing (on)
 import Dict.Extra as DE
-import Time
 import Task
 import Tree as T
 import TreeView as TV
@@ -32,20 +30,17 @@ import Bootstrap.Grid as Grid
 import Bootstrap.Grid.Col as Col
 import Bootstrap.Card as Card
 import Bootstrap.Card.Block as Block
-import Bootstrap.Tab as Tab
 import Bootstrap.Form as Form
 import Bootstrap.Form.InputGroup as InputGroup
 import Bootstrap.Form.Input as Input
 import Bootstrap.Button as Button
-import Bootstrap.ListGroup as Listgroup
 import Bootstrap.Modal as Modal
 import Bootstrap.Utilities.Spacing as Spacing
-import Bootstrap.Utilities.Display as Display
 import Bootstrap.Text as Text
 import Bootstrap.Spinner as Spinner
 import Json.Decode as D
 import Dict exposing (Dict, get)
-import List.Extra exposing (unique, foldl1, foldr1, greedyGroupsOf, getAt, stripPrefix)
+import List.Extra exposing (greedyGroupsOf, getAt, stripPrefix)
 
 port reload : () -> Cmd msg
 
