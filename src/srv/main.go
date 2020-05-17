@@ -403,7 +403,7 @@ func BuildSendInput() func(http.ResponseWriter, *http.Request) {
 func ScanForGames(w http.ResponseWriter, r *http.Request) {
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
-	games := make(chan [3]string)
+	games := make(chan [4]string)
 	scanPathParam, ok := r.URL.Query()["path"]
 	if !ok {
 		return
@@ -578,7 +578,7 @@ func IsKnownExt(ext string) bool {
 	return false
 }
 
-func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db *bolt.DB, crc_ring, size_ring *ring.Ring, games chan<- [3]string) error {
+func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db *bolt.DB, crc_ring, size_ring *ring.Ring, games chan<- [4]string) error {
 	buf_size := make([]byte, 8)
 	for _, zf := range file.File {
 		composePath := filepath.Join(filename, zf.FileHeader.Name)
@@ -589,7 +589,7 @@ func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db 
 			if !size_ring.Test(buf_size) {
 				// Not a single known file matched size
 				// fmt.Println("Skip (size)", composePath)
-				games <- [3]string{composePath[len(basePath):], "", ""}
+				games <- [4]string{composePath[len(basePath):], "", "", ""}
 				return nil
 			}
 
@@ -599,7 +599,7 @@ func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db 
 			if !crc_ring.Test(buf_crc) {
 				// Not a single known file matched size
 				// fmt.Println("Skip (crc32)", composePath)
-				games <- [3]string{composePath[len(basePath):], "", ""}
+				games <- [4]string{composePath[len(basePath):], "", "", ""}
 				return nil
 			}
 
@@ -618,13 +618,14 @@ func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db 
 			var md5Bucket = "MD5"
 			err = db.View(func(tx *bolt.Tx) error {
 				b := tx.Bucket([]byte(md5Bucket))
-				v := b.Get([]byte(fmt.Sprintf("%x", h.Sum(nil))))
+				md5 := fmt.Sprintf("%x", h.Sum(nil))
+				v := b.Get([]byte(md5))
 				if v != nil {
 					// fmt.Println("Found", composePath, string(v))
 					values := strings.SplitN(string(v), ";", 2)
-					games <- [3]string{composePath[len(basePath):], values[1], values[0]}
+					games <- [4]string{composePath[len(basePath):], values[1], values[0], md5}
 				} else {
-					games <- [3]string{composePath[len(basePath):], "", ""}
+					games <- [4]string{composePath[len(basePath):], "", "", ""}
 				}
 				return nil
 			})
@@ -636,7 +637,7 @@ func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db 
 	return nil
 }
 
-func ScanGames(basePath string, games chan<- [3]string) error {
+func ScanGames(basePath string, games chan<- [4]string) error {
 
 	defer close(games)
 
@@ -696,7 +697,7 @@ func ScanGames(basePath string, games chan<- [3]string) error {
 			if !size_ring.Test(buf_size) {
 				// Not a single known file matched size
 				// fmt.Println("Skip (size)", path)
-				games <- [3]string{path[len(basePath):], "", ""}
+				games <- [4]string{path[len(basePath):], "", "", ""}
 				return nil
 			}
 
@@ -713,11 +714,14 @@ func ScanGames(basePath string, games chan<- [3]string) error {
 
 			err = db.View(func(tx *bolt.Tx) error {
 				b := tx.Bucket([]byte(md5Bucket))
-				v := b.Get([]byte(fmt.Sprintf("%x", h.Sum(nil))))
+				md5 := fmt.Sprintf("%x", h.Sum(nil))
+				v := b.Get([]byte(md5))
 				if v != nil {
 					// fmt.Println("Found", path, string(v))
 					values := strings.SplitN(string(v), ";", 2)
-					games <- [3]string{path[len(basePath):], values[1], values[0]}
+					games <- [4]string{path[len(basePath):], values[1], values[0], md5}
+				} else {
+					games <- [4]string{path[len(basePath):], "", "", ""}
 				}
 				return nil
 			})
@@ -792,6 +796,7 @@ func ScanFolders(basePath string, recursive bool) (*Path, error) {
 }
 
 func ScanForFolders(w http.ResponseWriter, r *http.Request) {
+	// TODO cache and flag based on mtime
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
 
@@ -800,7 +805,7 @@ func ScanForFolders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := ScanFolders(scanPathParam[0], false)
+	p, err := ScanFolders(scanPathParam[0], true)
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)

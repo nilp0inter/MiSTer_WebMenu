@@ -31,9 +31,11 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (on, onClick, onInput)
 import Http
-import Json.Decode as D
-import List.Extra exposing (getAt, greedyGroupsOf, stripPrefix)
+import Json.Decode as Decode exposing (Decoder)
+import List.Extra exposing (getAt, greedyGroupsOf, last, stripPrefix)
 import Process
+import Result.Extra
+import Set as Set
 import Task
 import Tree as T
 import TreeView as TV
@@ -214,61 +216,121 @@ type alias Platform =
     }
 
 
-romDecoder : D.Decoder Rom
+romDecoder : Decode.Decoder Rom
 romDecoder =
-    D.map Rom (D.field "zip" D.string)
+    Decode.map Rom (Decode.field "zip" Decode.string)
 
 
-rbfDecoder : D.Decoder RBF
+rbfDecoder : Decode.Decoder RBF
 rbfDecoder =
-    D.map4 RBF
-        (D.field "filename" D.string)
-        (D.field "codename" D.string)
-        (D.field "lpath" (D.list D.string))
-        (D.field "path" D.string)
+    Decode.map4 RBF
+        (Decode.field "filename" Decode.string)
+        (Decode.field "codename" Decode.string)
+        (Decode.field "lpath" (Decode.list Decode.string))
+        (Decode.field "path" Decode.string)
 
 
-mraDecoder : D.Decoder MRA
+mraDecoder : Decode.Decoder MRA
 mraDecoder =
-    D.map7 MRA
-        (D.field "path" D.string)
-        (D.field "filename" D.string)
-        (D.field "name" D.string)
-        (D.field "lpath" (D.list D.string))
-        (D.field "md5" D.string)
-        (D.field "roms" (D.map (Maybe.withDefault []) (D.nullable (D.list romDecoder))))
-        (D.field "roms_found" D.bool)
+    Decode.map7 MRA
+        (Decode.field "path" Decode.string)
+        (Decode.field "filename" Decode.string)
+        (Decode.field "name" Decode.string)
+        (Decode.field "lpath" (Decode.list Decode.string))
+        (Decode.field "md5" Decode.string)
+        (Decode.field "roms" (Decode.map (Maybe.withDefault []) (Decode.nullable (Decode.list romDecoder))))
+        (Decode.field "roms_found" Decode.bool)
 
 
-coreDecoder : D.Decoder (List Core)
+coreDecoder : Decode.Decoder (List Core)
 coreDecoder =
-    D.map2 (++)
-        (D.field "rbfs" (D.list (D.map RBFCore rbfDecoder)))
-        (D.field "mras" (D.list (D.map MRACore mraDecoder)))
+    Decode.map2 (++)
+        (Decode.field "rbfs" (Decode.list (Decode.map RBFCore rbfDecoder)))
+        (Decode.field "mras" (Decode.list (Decode.map MRACore mraDecoder)))
 
 
-platformDecoder : D.Decoder Platform
+platformDecoder : Decode.Decoder Platform
 platformDecoder =
-    D.map2 Platform
-        (D.field "name" D.string)
-        (D.field "codename" (D.list D.string))
+    Decode.map2 Platform
+        (Decode.field "name" Decode.string)
+        (Decode.field "codename" (Decode.list Decode.string))
+
+
+toGame : String -> String -> String -> String -> Game
+toGame path name system md5 =
+    if name == "" || system == "" || md5 == "" then
+        UnrecognizedGame { path = path }
+
+    else
+        RecognizedGame { path = path, name = name, system = system, md5 = md5 }
+
+
+gameDecoder : String -> Decode.Decoder Game
+gameDecoder prefix =
+    Decode.map4 toGame
+        (Decode.map2 (++)
+            (Decode.succeed prefix)
+            (Decode.index 0 Decode.string)
+        )
+        (Decode.index 1 Decode.string)
+        (Decode.index 2 Decode.string)
+        (Decode.index 3 Decode.string)
 
 
 type alias Flags =
     {}
 
 
-type alias Game =
-    { path : String
-    , name : Maybe String
-    , system : Maybe String
-    }
-
-
 type CoreState
     = CoresNotFound
     | ScanningCores
     | CoresLoaded (List Core)
+
+
+type Contents
+    = Contents (Dict String GameTree)
+
+
+type alias GameTree =
+    { path : String
+    , scanned : Bool
+    , contents : Contents
+    }
+
+
+type alias GameFolder =
+    { label : String
+    , content : Maybe (List Game)
+    , path : String
+    }
+
+
+type Game
+    = RecognizedGame
+        { path : String
+        , name : String
+        , system : String
+        , md5 : String
+        }
+    | UnrecognizedGame
+        { path : String
+        }
+
+
+type alias GameInfo =
+    { tree : TV.Model GameFolder String Never ()
+    , loaded : Dict String Bool
+    , list : Dict String (List Game)
+    , folder : Maybe GameFolder
+    , filter : Maybe String
+    , missingThumbnails : Set.Set String
+    }
+
+
+type GameState
+    = GamesNotFound
+    | ScanningGames
+    | GamesLoaded GameInfo
 
 
 type alias Model =
@@ -282,7 +344,7 @@ type alias Model =
     , modalAction : Msg
     , messages : List Panel
     , cores : CoreState
-    , games : Maybe (List Game)
+    , games : GameState
     , platforms : Maybe (List Platform)
     , waiting : Int
     , currentVersion : String
@@ -342,7 +404,7 @@ init flags url key =
                 , modalBody = ""
                 , modalAction = CloseModal
                 , cores = CoresNotFound
-                , games = Just []
+                , games = GamesNotFound
                 , platforms = Nothing
                 , waiting = 3 -- Per loadCores, loadPlatforms, ...
                 , messages = []
@@ -351,7 +413,7 @@ init flags url key =
                 , updateStatus = NotReady
                 , missingThumbnails = []
                 , currentPath = []
-                , treeViewModel = TV.initializeModel configuration []
+                , treeViewModel = TV.initializeModel coreTreeCfg []
                 , selectedCoreFolder = Nothing
                 , activePageIdx = 0
                 , selectedCore = Nothing
@@ -362,6 +424,7 @@ init flags url key =
         [ urlCmd
         , navCmd
         , loadCores
+        , syncGames -- XXX
         , loadPlatforms
         , checkCurrentVersion
         ]
@@ -376,12 +439,16 @@ type Msg
     | ShowModal String String Msg
     | LoadGame String String String
     | GameLoaded (Result Http.Error ())
-    | SyncFinished (Result Http.Error ())
+    | CoreSyncFinished (Result Http.Error ())
+    | GameSyncFinished (Result Http.Error GameTree)
     | LoadCores
     | ScanCores Bool
+    | ScanGames
     | GotCores (Result Http.Error (List Core))
     | FilterCores String
+    | FilterGames String
     | GotPlatforms (Result Http.Error (Maybe (List Platform)))
+    | GotGameScan String (Result Http.Error (List Game))
     | ClosePanel Int Alert.Visibility
     | GotCurrentVersion (Result Http.Error String)
     | CheckLatestRelease
@@ -392,16 +459,18 @@ type Msg
     | GotNewVersion (Result Http.Error String)
     | Reload
     | MissingThumbnail String
-    | TreeViewMsg (TV.Msg String)
+    | CoreTreeViewMsg (TV.Msg String)
+    | GameTreeViewMsg (TV.Msg String)
     | PaginationMsg Int
     | SelectCore (Maybe Core)
+    | GameMissingThumbnail String
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Navbar.subscriptions model.navState NavMsg
-        , Sub.map TreeViewMsg (TV.subscriptions model.treeViewModel)
+        , Sub.map CoreTreeViewMsg (TV.subscriptions model.treeViewModel)
         ]
 
 
@@ -453,7 +522,7 @@ update msg model =
                 Ok cs ->
                     let
                         ( treeModel, _ ) =
-                            TV.expandOnly firstLevel <| TV.initializeModel configuration (buildNodes cs)
+                            TV.expandOnly firstLevel <| TV.initializeModel coreTreeCfg (buildNodes cs)
                     in
                     ( { model
                         | waiting = model.waiting - 1
@@ -487,7 +556,7 @@ update msg model =
             , syncCores force
             )
 
-        SyncFinished c ->
+        CoreSyncFinished c ->
             case c of
                 Ok cs ->
                     ( model, loadCores )
@@ -663,7 +732,7 @@ update msg model =
             , Cmd.none
             )
 
-        TreeViewMsg tvm ->
+        CoreTreeViewMsg tvm ->
             let
                 treeView =
                     TV.update tvm model.treeViewModel
@@ -687,6 +756,151 @@ update msg model =
             ( { model | selectedCore = mc }
             , Cmd.none
             )
+
+        ScanGames ->
+            ( model, syncGames )
+
+        GotGameScan path res ->
+            case res of
+                Ok games ->
+                    case model.games of
+                        GamesLoaded current ->
+                            let
+                                loaded =
+                                    Dict.insert path True current.loaded
+
+                                new =
+                                    DE.groupBy (gamePath >> getBasePath) games
+
+                                list =
+                                    Dict.merge
+                                        (\key a -> Dict.insert key a)
+                                        (\key a b -> Dict.insert key (a ++ b))
+                                        (\key b -> Dict.insert key b)
+                                        new
+                                        current.list
+                                        Dict.empty
+                            in
+                            ( { model | games = GamesLoaded { current | loaded = loaded, list = list } }
+                            , Cmd.none
+                            )
+
+                        _ ->
+                            ( model, Cmd.none )
+
+                Err err ->
+                    ( model, Cmd.none )
+
+        GameSyncFinished res ->
+            case res of
+                Ok value ->
+                    let
+                        -- tree =
+                        --     TV.initializeModel gameTreeCfg []
+                        ( tree, _ ) =
+                            TV.expandOnly underMedia <|
+                                TV.initializeModel gameTreeCfg (buildGameNodes "root" value)
+
+                        loaded =
+                            Dict.fromList
+                                (initLoadedGameFolders value)
+
+                        list =
+                            Dict.empty
+                    in
+                    ( { model
+                        | games =
+                            GamesLoaded
+                                { tree = tree
+                                , loaded = loaded
+                                , list = list
+                                , folder = Nothing
+                                , filter = Nothing
+                                , missingThumbnails = Set.empty
+                                }
+                      }
+                    , Cmd.batch
+                        (List.map loadGameScan (Dict.keys loaded))
+                    )
+
+                Err value ->
+                    ( model, Cmd.none )
+
+        GameTreeViewMsg tvm ->
+            case model.games of
+                GamesLoaded games ->
+                    let
+                        tree =
+                            TV.update tvm games.tree
+
+                        folder =
+                            TV.getSelected tree |> Maybe.map .node |> Maybe.map T.dataOf
+                    in
+                    ( { model
+                        | games =
+                            GamesLoaded
+                                { games
+                                    | tree = tree
+                                    , folder = folder
+                                }
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        FilterGames s ->
+            case model.games of
+                GamesLoaded games ->
+                    let
+                        filter =
+                            if s == "" then
+                                Nothing
+
+                            else
+                                Just s
+                    in
+                    ( { model
+                        | games = GamesLoaded { games | filter = filter }
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        GameMissingThumbnail s ->
+            case model.games of
+                GamesLoaded games ->
+                    ( { model
+                        | games = GamesLoaded { games | missingThumbnails = Set.insert s games.missingThumbnails }
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+
+initLoadedGameFolders : GameTree -> List ( String, Bool )
+initLoadedGameFolders tree =
+    let
+        head =
+            if tree.scanned then
+                [ ( tree.path, False ) ]
+
+            else
+                []
+    in
+    case tree.contents of
+        Contents rest ->
+            head ++ List.concat (List.map initLoadedGameFolders (Dict.values rest))
+
+
+underMedia : GameFolder -> Bool
+underMedia gf =
+    gf.path == "/media/fat"
 
 
 firstLevel : CoreFolder -> Bool
@@ -812,14 +1026,14 @@ passStringResolver response =
             Err Http.Timeout
 
 
-decodeReleases : D.Decoder (List (Maybe String))
+decodeReleases : Decode.Decoder (List (Maybe String))
 decodeReleases =
-    D.list
-        (D.map3
+    Decode.list
+        (Decode.map3
             decodeStable
-            (D.field "tag_name" D.string)
-            (D.field "draft" D.bool)
-            (D.field "prerelease" D.bool)
+            (Decode.field "tag_name" Decode.string)
+            (Decode.field "draft" Decode.bool)
+            (Decode.field "prerelease" Decode.bool)
         )
 
 
@@ -862,7 +1076,24 @@ syncCores force =
                         0
                     )
                 ]
-        , expect = Http.expectWhatever SyncFinished
+        , expect = Http.expectWhatever CoreSyncFinished
+        }
+
+
+gameTreeDecoder : Decode.Decoder GameTree
+gameTreeDecoder =
+    Decode.map3 GameTree
+        (Decode.field "path" Decode.string)
+        (Decode.field "scanned" Decode.bool)
+        (Decode.field "contents" (Decode.map Contents (Decode.dict (Decode.lazy (\_ -> gameTreeDecoder)))))
+
+
+syncGames : Cmd Msg
+syncGames =
+    Http.get
+        { url =
+            relative [ "api", "folder", "scan" ] [ string "path" "/media" ]
+        , expect = Http.expectJson GameSyncFinished gameTreeDecoder
         }
 
 
@@ -878,7 +1109,47 @@ loadPlatforms : Cmd Msg
 loadPlatforms =
     Http.get
         { url = staticData [ "platforms.json" ]
-        , expect = Http.expectJson GotPlatforms (D.nullable (D.list platformDecoder))
+        , expect = Http.expectJson GotPlatforms (Decode.nullable (Decode.list platformDecoder))
+        }
+
+
+decodeJsonLines : Decoder a -> String -> Result Decode.Error (List a)
+decodeJsonLines decoder lines =
+    List.map (Decode.decodeString decoder) (String.lines lines)
+        |> Result.Extra.combine
+
+
+expectJsonLines : (Result Http.Error (List a) -> msg) -> Decoder a -> Http.Expect msg
+expectJsonLines toMsg decoder =
+    Http.expectStringResponse toMsg <|
+        \response ->
+            case response of
+                Http.BadUrl_ url ->
+                    Err (Http.BadUrl url)
+
+                Http.Timeout_ ->
+                    Err Http.Timeout
+
+                Http.NetworkError_ ->
+                    Err Http.NetworkError
+
+                Http.BadStatus_ metadata body ->
+                    Err (Http.BadStatus metadata.statusCode)
+
+                Http.GoodStatus_ metadata body ->
+                    case decodeJsonLines decoder (String.trim body) of
+                        Ok value ->
+                            Ok value
+
+                        Err err ->
+                            Err (Http.BadBody (Decode.errorToString err))
+
+
+loadGameScan : String -> Cmd Msg
+loadGameScan scan =
+    Http.get
+        { url = relative [ "cached", "games", scan ++ ".jsonl" ] []
+        , expect = expectJsonLines (GotGameScan scan) (gameDecoder scan)
         }
 
 
@@ -1233,7 +1504,7 @@ pageCoresPageContent model =
                 [ Grid.row []
                     [ Grid.col [ Col.sm3 ]
                         [ coreSearch model
-                        , Html.map TreeViewMsg (TV.view model.treeViewModel)
+                        , Html.map CoreTreeViewMsg (TV.view model.treeViewModel)
                         ]
                     , Grid.col [ Col.sm9 ] (paginationBlock ++ (List.concat <| List.map (coreFolderContent model) pageWithSections) ++ paginationBlock)
                     ]
@@ -1272,13 +1543,23 @@ filterByNode cf c =
             True
 
 
-nodeLabel : T.Node CoreFolder -> String
-nodeLabel (T.Node node) =
+gameNodeLabel : T.Node GameFolder -> String
+gameNodeLabel (T.Node node) =
     node.data.label
 
 
-nodeUid : T.Node CoreFolder -> TV.NodeUid String
-nodeUid (T.Node node) =
+gameNodeUid : T.Node GameFolder -> TV.NodeUid String
+gameNodeUid (T.Node node) =
+    TV.NodeUid node.data.path
+
+
+coreNodeLabel : T.Node CoreFolder -> String
+coreNodeLabel (T.Node node) =
+    node.data.label
+
+
+coreNodeUid : T.Node CoreFolder -> TV.NodeUid String
+coreNodeUid (T.Node node) =
     TV.NodeUid <| String.join "/" node.data.path ++ node.data.label
 
 
@@ -1308,18 +1589,49 @@ treeFromList p ss cs =
                     }
 
 
-configuration : TV.Configuration CoreFolder String
-configuration =
+gameTreeCfg : TV.Configuration GameFolder String
+gameTreeCfg =
     TV.Configuration
-        nodeUid
+        gameNodeUid
         -- to construct node UIDs
-        nodeLabel
+        gameNodeLabel
+        -- to render node (data) to text
+        TV.defaultCssClasses
+
+
+coreTreeCfg : TV.Configuration CoreFolder String
+coreTreeCfg =
+    TV.Configuration
+        coreNodeUid
+        -- to construct node UIDs
+        coreNodeLabel
         -- to render node (data) to text
         TV.defaultCssClasses
 
 
 
 -- CSS classes to use
+
+
+contentToNode : ( String, GameTree ) -> T.Node GameFolder
+contentToNode ( label, folder ) =
+    case folder.contents of
+        Contents cs ->
+            T.Node
+                { data = { label = label, content = Nothing, path = folder.path }
+                , children = List.map contentToNode (Dict.toList cs)
+                }
+
+
+buildGameNodes : String -> GameTree -> List (T.Node GameFolder)
+buildGameNodes label folder =
+    case folder.contents of
+        Contents cs ->
+            [ T.Node
+                { data = { label = label, content = Nothing, path = folder.path }
+                , children = List.map contentToNode (Dict.toList cs)
+                }
+            ]
 
 
 buildNodes : List Core -> List (T.Node CoreFolder)
@@ -1460,7 +1772,7 @@ waitForSync =
         |> Card.block []
             [ Block.titleH4 [] [ text "Please wait..." ]
             , Block.text []
-                [ p [] [ text "WebMenu is looking for cores in your MiSTer device." ]
+                [ p [] [ text "WebMenu is scanning your MiSTer device." ]
                 , p [] [ text "This may take a couple of minutes depending on the number of files in your SD card." ]
                 ]
             , Block.custom <|
@@ -1550,7 +1862,7 @@ coreCard model core =
                     [ Block.text [] [ text "No image available" ] ]
 
             else
-                Card.imgTop [ src imgSrc, on "error" (D.succeed (MissingThumbnail imgSrc)) ] []
+                Card.imgTop [ src imgSrc, on "error" (Decode.succeed (MissingThumbnail imgSrc)) ] []
 
         corePath =
             cFilename core
@@ -1575,8 +1887,8 @@ coreCard model core =
         [ Card.outlineSecondary
         , Card.attrs
             [ Spacing.mb4
-            , on "mouseenter" (D.succeed (SelectCore <| Just core))
-            , on "mouseleave" (D.succeed (SelectCore Nothing))
+            , on "mouseenter" (Decode.succeed (SelectCore <| Just core))
+            , on "mouseleave" (Decode.succeed (SelectCore Nothing))
             ]
         ]
         |> Card.header [ class "text-center" ] [ text title ]
@@ -1597,7 +1909,7 @@ coreCard model core =
             , class "text-center"
             , class "text-white"
             , class "runbutton"
-            , on "click" (D.succeed loadEv)
+            , on "click" (Decode.succeed loadEv)
             ]
             [ text "Run" ]
 
@@ -1618,18 +1930,282 @@ pageGamesPage model =
 pageGamesPageContent : Model -> Html Msg
 pageGamesPageContent model =
     case model.games of
-        Nothing ->
+        GamesNotFound ->
+            gameSyncButton
+
+        ScanningGames ->
             waitForSync
 
-        Just cs ->
-            Grid.container []
-                [ Grid.row []
-                    [ Grid.col [ Col.sm3 ]
-                        []
+        GamesLoaded games ->
+            pageGamesLoadedContent games
 
-                    -- [ coreSearch model
-                    -- , Html.map TreeViewMsg (TV.view model.treeViewModel)
-                    -- ]
-                    -- , Grid.col [ Col.sm9 ] (paginationBlock ++ (List.concat <| List.map (coreFolderContent model) pageWithSections) ++ paginationBlock)
-                    ]
+
+gameSearch : Html Msg
+gameSearch =
+    Form.form [ class "mb-4" ]
+        [ InputGroup.config
+            (InputGroup.text [ Input.attrs [ onInput FilterGames ] ])
+            |> InputGroup.predecessors
+                [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
+            |> InputGroup.view
+        ]
+
+
+filterGame : String -> Game -> Bool
+filterGame s game =
+    case game of
+        RecognizedGame g ->
+            String.contains (String.toLower s) (String.toLower g.name)
+
+        UnrecognizedGame g ->
+            String.contains (String.toLower s) (String.toLower g.path)
+
+
+filterGameByPath : String -> Game -> Bool
+filterGameByPath path game =
+    String.startsWith path (gamePath game)
+
+
+pageGamesLoadedContent : GameInfo -> Html Msg
+pageGamesLoadedContent games =
+    let
+        byPath =
+            case games.folder of
+                Nothing ->
+                    games.list
+
+                Just p ->
+                    Dict.filter (\k v -> String.startsWith p.path k) games.list
+
+        filtered =
+            case games.filter of
+                Nothing ->
+                    byPath
+
+                Just s ->
+                    Dict.map (\k v -> List.filter (filterGame s) v) byPath
+
+        onlyPopulated =
+            Dict.filter (\k v -> not <| List.isEmpty v) filtered
+
+        -- pages =
+        --     greedyGroupsOf 90 (List.sortBy (gamePath >> getBasePath) filtered)
+        pages =
+            greedyGroupsOf 90 <| List.take 900 <| List.concat <| List.map (\( a, xs ) -> xs) <| Dict.toList onlyPopulated
+
+        selectedPage =
+            Maybe.withDefault [] (getAt 0 pages)
+
+        -- activePagination =
+        --     List.length pages > 1
+        pageWithSections =
+            selectedPage |> DE.groupBy (gamePath >> getBasePath) |> Dict.toList
+    in
+    Grid.container []
+        [ Grid.row []
+            [ Grid.col [ Col.sm3 ]
+                [ gameSearch
+                , Html.map GameTreeViewMsg (TV.view games.tree)
                 ]
+            , Grid.col [ Col.sm9 ] (List.concat <| List.map (gameFolderContent games) pageWithSections)
+            ]
+        ]
+
+
+takeWhileLessThan : Int -> List ( a, List b ) -> List ( a, List b )
+takeWhileLessThan rem xxs =
+    if rem < 0 then
+        []
+
+    else
+        case xxs of
+            [] ->
+                []
+
+            ( h, x ) :: xs ->
+                ( h, x ) :: takeWhileLessThan (rem - List.length x) xs
+
+
+gameBrFromPath : String -> Html Msg
+gameBrFromPath path =
+    Breadcrumb.container <|
+        List.map (\x -> Breadcrumb.item [] [ text x ]) (String.split "/" path)
+
+
+gameFolderContent : GameInfo -> ( String, List Game ) -> List (Html Msg)
+gameFolderContent m ( path, cs ) =
+    [ gameBrFromPath path ] ++ gameContent m cs
+
+
+gameContent : GameInfo -> List Game -> List (Html Msg)
+gameContent m cs =
+    List.map Card.deck (partition 3 emptyCard (List.map (gameCard m) cs))
+
+
+getFilename : String -> Maybe String
+getFilename p =
+    Just (String.split "/" p)
+        |> Maybe.andThen last
+        |> Maybe.andThen (\xs -> Just (String.split "." xs))
+        |> Maybe.andThen List.Extra.init
+        |> Maybe.andThen (\xs -> Just (String.join "." xs))
+
+
+getBasePath : String -> String
+getBasePath p =
+    Maybe.withDefault p
+        (Just (String.split "/" p)
+            |> Maybe.andThen List.Extra.init
+            |> Maybe.andThen (\xs -> Just (String.join "/" xs))
+        )
+
+
+getExt : String -> Maybe String
+getExt p =
+    case last (String.split "." p) of
+        Nothing ->
+            Nothing
+
+        Just ext ->
+            Just ("." ++ ext)
+
+
+gameName : Game -> String
+gameName game =
+    case game of
+        RecognizedGame g ->
+            g.name
+
+        UnrecognizedGame g ->
+            case getFilename g.path of
+                Nothing ->
+                    g.path
+
+                Just name ->
+                    name
+
+
+gamePath : Game -> String
+gamePath game =
+    case game of
+        RecognizedGame g ->
+            g.path
+
+        UnrecognizedGame g ->
+            g.path
+
+
+gameMD5 : Game -> Maybe String
+gameMD5 game =
+    case game of
+        RecognizedGame g ->
+            Just g.md5
+
+        UnrecognizedGame g ->
+            Nothing
+
+
+gameSystem : Game -> Maybe String
+gameSystem game =
+    case game of
+        RecognizedGame g ->
+            Just g.system
+
+        UnrecognizedGame _ ->
+            Nothing
+
+
+ifNotGameMissing : GameInfo -> String -> String
+ifNotGameMissing m s =
+    if Set.member s m.missingThumbnails then
+        ""
+
+    else
+        s
+
+
+gameCard : GameInfo -> Game -> Card.Config Msg
+gameCard model game =
+    let
+        title =
+            gameName game
+
+        imgSrc =
+            ifNotGameMissing model <|
+                case game of
+                    RecognizedGame g ->
+                        crossOrigin ("https://raw.githubusercontent.com/libretro-thumbnails/" ++ percentEncode (String.replace " " "_" g.system) ++ "/master/Named_Titles") [ percentEncode g.name ++ ".png" ] []
+
+                    UnrecognizedGame _ ->
+                        ""
+
+        body =
+            Block.text []
+                (case gameSystem game of
+                    Just s ->
+                        [ cardBadge Badge.badgeSuccess s ]
+
+                    Nothing ->
+                        let
+                            systemBadge =
+                                [ cardBadge Badge.badgeDanger "Unknown System" ]
+
+                            extBadge =
+                                [ cardBadge Badge.badgeDark (Maybe.withDefault "No Extension" (getExt <| gamePath game)) ]
+                        in
+                        systemBadge ++ extBadge
+                )
+
+        thumbnail =
+            if imgSrc == "" then
+                Card.block [ Block.attrs [ class "text-muted", class "d-flex", class "justify-content-center", class "align-items-center", class "corenoimg" ] ]
+                    [ Block.text [] [ text "No image available" ] ]
+
+            else
+                Card.imgTop [ src imgSrc, on "error" (Decode.succeed (GameMissingThumbnail imgSrc)) ] []
+
+        path =
+            gamePath game
+    in
+    Card.config
+        [ Card.outlineSecondary
+        , Card.attrs
+            [ Spacing.mb4 ]
+        ]
+        |> Card.header [ class "text-center" ] [ text title ]
+        |> thumbnail
+        |> Card.block
+            [ Block.attrs
+                [ class "d-flex"
+                , class "align-content-end"
+                , class "flex-row"
+                , class "flex-wrap"
+                ]
+            ]
+            [ body ]
+        |> Card.footer
+            [ class "bg-primary"
+            , class "text-center"
+            , class "text-white"
+            , class "runbutton"
+            ]
+            [ text "Run" ]
+
+
+gameSyncButton : Html Msg
+gameSyncButton =
+    Card.config []
+        |> Card.block []
+            [ Block.titleH4 [] [ text "No games yet" ]
+            , Block.text []
+                [ p [] [ text "Click on 'Scan now' to start scanning for available games in your MiSTer." ]
+                , p [] [ text "This may take a couple of minutes depending on the number of files in your SD card." ]
+                ]
+            , Block.custom <|
+                Button.button
+                    [ Button.primary
+                    , Button.onClick ScanGames
+                    ]
+                    [ text "Scan now" ]
+            ]
+        |> Card.view
