@@ -242,7 +242,6 @@ mraDecoder =
 
 coreDecoder : D.Decoder (List Core)
 coreDecoder =
-    -- (D.field "rbfs" (D.list (D.map RBFCore rbfDecoder)))
     D.map2 (++)
         (D.field "rbfs" (D.list (D.map RBFCore rbfDecoder)))
         (D.field "mras" (D.list (D.map MRACore mraDecoder)))
@@ -259,6 +258,19 @@ type alias Flags =
     {}
 
 
+type alias Game =
+    { path : String
+    , name : Maybe String
+    , system : Maybe String
+    }
+
+
+type CoreState
+    = CoresNotFound
+    | ScanningCores
+    | CoresLoaded (List Core)
+
+
 type alias Model =
     { navKey : Navigation.Key
     , page : Page
@@ -269,10 +281,10 @@ type alias Model =
     , modalBody : String
     , modalAction : Msg
     , messages : List Panel
-    , cores : Maybe (List Core)
+    , cores : CoreState
+    , games : Maybe (List Game)
     , platforms : Maybe (List Platform)
     , waiting : Int
-    , scanning : Bool
     , currentVersion : String
     , latestRelease : String
     , updateStatus : UpdateStatus
@@ -288,6 +300,7 @@ type alias Model =
 type Page
     = AboutPage
     | CoresPage
+    | GamesPage
     | SettingsPage
     | NotImplementedPage String String
     | NotFound
@@ -328,10 +341,10 @@ init flags url key =
                 , modalTitle = ""
                 , modalBody = ""
                 , modalAction = CloseModal
-                , cores = Nothing
+                , cores = CoresNotFound
+                , games = Just []
                 , platforms = Nothing
                 , waiting = 3 -- Per loadCores, loadPlatforms, ...
-                , scanning = False
                 , messages = []
                 , currentVersion = ""
                 , latestRelease = ""
@@ -366,7 +379,7 @@ type Msg
     | SyncFinished (Result Http.Error ())
     | LoadCores
     | ScanCores Bool
-    | GotCores (Result Http.Error (Maybe (List Core)))
+    | GotCores (Result Http.Error (List Core))
     | FilterCores String
     | GotPlatforms (Result Http.Error (Maybe (List Platform)))
     | ClosePanel Int Alert.Visibility
@@ -440,18 +453,23 @@ update msg model =
                 Ok cs ->
                     let
                         ( treeModel, _ ) =
-                            TV.expandOnly firstLevel <| TV.initializeModel configuration (buildNodes <| Maybe.withDefault [] cs)
+                            TV.expandOnly firstLevel <| TV.initializeModel configuration (buildNodes cs)
                     in
                     ( { model
                         | waiting = model.waiting - 1
                         , treeViewModel = treeModel
-                        , cores = cs
+                        , cores = CoresLoaded cs
                       }
                     , Cmd.none
                     )
 
                 Err (Http.BadStatus 404) ->
-                    ( { model | waiting = model.waiting - 1, cores = Nothing }, Cmd.none )
+                    ( { model
+                        | waiting = model.waiting - 1
+                        , cores = CoresNotFound
+                      }
+                    , Cmd.none
+                    )
 
                 Err e ->
                     ( { model
@@ -463,24 +481,20 @@ update msg model =
 
         ScanCores force ->
             ( { model
-                | scanning = True
+                | cores = ScanningCores
                 , waiting = model.waiting + 1
               }
-            , if model.scanning then
-                Cmd.none
-
-              else
-                syncCores force
+            , syncCores force
             )
 
         SyncFinished c ->
             case c of
                 Ok cs ->
-                    ( { model | scanning = False }, loadCores )
+                    ( model, loadCores )
 
                 Err e ->
                     ( { model
-                        | scanning = False
+                        | cores = CoresNotFound
                         , waiting = model.waiting - 1
                         , messages = newPanel Error "Error scanning cores" (errorToString e) :: model.messages
                       }
@@ -856,7 +870,7 @@ loadCores : Cmd Msg
 loadCores =
     Http.get
         { url = relative [ "cached", "cores.json" ] []
-        , expect = Http.expectJson GotCores (D.nullable coreDecoder)
+        , expect = Http.expectJson GotCores coreDecoder
         }
 
 
@@ -896,8 +910,8 @@ routeParser : Parser (Page -> a) a
 routeParser =
     UrlParser.oneOf
         [ UrlParser.map AboutPage top
-        , UrlParser.map (NotImplementedPage "Games" "Search your game collection and play any ROM with a single click") (UrlParser.s "games")
         , UrlParser.map CoresPage (UrlParser.s "cores")
+        , UrlParser.map GamesPage (UrlParser.s "games")
         , UrlParser.map (NotImplementedPage "Community" "View MiSTer news, and receive community updates and relevant content") (UrlParser.s "community")
         , UrlParser.map SettingsPage (UrlParser.s "settings")
         , UrlParser.map AboutPage (UrlParser.s "about")
@@ -989,6 +1003,9 @@ mainContent model =
                     CoresPage ->
                         pageCoresPage model
 
+                    GamesPage ->
+                        pageGamesPage model
+
                     SettingsPage ->
                         pageSettingsPage model
 
@@ -1050,7 +1067,7 @@ scanCoresBlock model =
         ]
     , Block.custom <|
         Button.button
-            [ Button.disabled model.scanning
+            [ Button.disabled (model.cores == ScanningCores)
             , Button.primary
             , Button.onClick (ScanCores True)
             ]
@@ -1169,15 +1186,13 @@ pageCoresPage model =
 pageCoresPageContent : Model -> Html Msg
 pageCoresPageContent model =
     case model.cores of
-        Nothing ->
-            case model.scanning of
-                True ->
-                    waitForSync
+        CoresNotFound ->
+            coreSyncButton
 
-                False ->
-                    coreSyncButton
+        ScanningCores ->
+            waitForSync
 
-        Just cs ->
+        CoresLoaded cs ->
             let
                 filteredBySearch =
                     case model.coreFilter of
@@ -1585,3 +1600,36 @@ coreCard model core =
             , on "click" (D.succeed loadEv)
             ]
             [ text "Run" ]
+
+
+
+-------------------------------------------------------------------------
+--                                Games                                --
+-------------------------------------------------------------------------
+
+
+pageGamesPage : Model -> List (Html Msg)
+pageGamesPage model =
+    [ sectionHeading "Games" "Search your game collection and play any ROM with a single click"
+    , pageGamesPageContent model
+    ]
+
+
+pageGamesPageContent : Model -> Html Msg
+pageGamesPageContent model =
+    case model.games of
+        Nothing ->
+            waitForSync
+
+        Just cs ->
+            Grid.container []
+                [ Grid.row []
+                    [ Grid.col [ Col.sm3 ]
+                        []
+
+                    -- [ coreSearch model
+                    -- , Html.map TreeViewMsg (TV.view model.treeViewModel)
+                    -- ]
+                    -- , Grid.col [ Col.sm9 ] (paginationBlock ++ (List.concat <| List.map (coreFolderContent model) pageWithSections) ++ paginationBlock)
+                    ]
+                ]
