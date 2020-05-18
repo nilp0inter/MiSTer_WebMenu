@@ -325,6 +325,7 @@ type alias GameInfo =
     , list : Dict String (List Game)
     , folder : Maybe GameFolder
     , filter : Maybe String
+    , page : Int
     , missingThumbnails : Set.Set String
     }
 
@@ -463,7 +464,8 @@ type Msg
     | MissingThumbnail String
     | CoreTreeViewMsg (TV.Msg String)
     | GameTreeViewMsg (TV.Msg String)
-    | PaginationMsg Int
+    | CorePaginationMsg Int
+    | GamePaginationMsg Int
     | SelectCore (Maybe Core)
     | GameMissingThumbnail String
 
@@ -747,7 +749,7 @@ update msg model =
             , Cmd.none
             )
 
-        PaginationMsg i ->
+        CorePaginationMsg i ->
             ( { model
                 | activePageIdx = i
               }
@@ -818,6 +820,7 @@ update msg model =
                                 , list = list
                                 , folder = Nothing
                                 , filter = Nothing
+                                , page = 0
                                 , missingThumbnails = Set.empty
                                 }
                       }
@@ -877,6 +880,18 @@ update msg model =
                 GamesLoaded games ->
                     ( { model
                         | games = GamesLoaded { games | missingThumbnails = Set.insert s games.missingThumbnails }
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        GamePaginationMsg i ->
+            case model.games of
+                GamesLoaded games ->
+                    ( { model
+                        | games = GamesLoaded { games | page = i }
                       }
                     , Cmd.none
                     )
@@ -1494,7 +1509,7 @@ pageCoresPageContent model =
 
                 paginationBlock =
                     if activePagination then
-                        [ simplePaginationList pages model ]
+                        [ simplePaginationList "#cores" pages model.activePageIdx CorePaginationMsg ]
 
                     else
                         []
@@ -1513,20 +1528,20 @@ pageCoresPageContent model =
                 ]
 
 
-simplePaginationList : List (List Core) -> Model -> Html Msg
-simplePaginationList pages model =
+simplePaginationList : String -> List (List a) -> Int -> (Int -> Msg) -> Html Msg
+simplePaginationList url pages active toMsg =
     Pagination.defaultConfig
         |> Pagination.ariaLabel "Pagination"
         |> Pagination.small
         |> Pagination.align HAlign.centerXs
         |> Pagination.itemsList
-            { selectedMsg = PaginationMsg
+            { selectedMsg = toMsg
             , prevItem = Just <| Pagination.ListItem [] [ text "<<" ]
             , nextItem = Just <| Pagination.ListItem [] [ text ">>" ]
-            , activeIdx = model.activePageIdx
+            , activeIdx = active
             , data = List.range 1 (List.length pages)
             , itemFn = \idx pcs -> Pagination.ListItem [] [ text (String.fromInt pcs) ]
-            , urlFn = \idx _ -> "#cores"
+            , urlFn = \idx _ -> url
             }
         |> Pagination.view
 
@@ -2003,13 +2018,21 @@ pageGamesLoadedContent games =
             Dict.filter (\k v -> not <| List.isEmpty v) filtered
 
         pages =
-            greedyGroupsOf 90 <| List.take 900 <| List.concat <| List.map (\( a, xs ) -> xs) <| Dict.toList onlyPopulated
+            greedyGroupsOf 90 <| List.take 1200 <| List.concat <| List.map (\( a, xs ) -> xs) <| Dict.toList onlyPopulated
 
         selectedPage =
-            Maybe.withDefault [] (getAt 0 pages)
+            Maybe.withDefault [] (getAt games.page pages)
 
-        -- activePagination =
-        --     List.length pages > 1
+        activePagination =
+            List.length pages > 1
+
+        paginationBlock =
+            if activePagination then
+                [ simplePaginationList "#games" pages games.page GamePaginationMsg ]
+
+            else
+                []
+
         pageWithSections =
             selectedPage |> DE.groupBy gamePath |> Dict.toList
     in
@@ -2019,7 +2042,7 @@ pageGamesLoadedContent games =
                 [ gameSearch
                 , Html.map GameTreeViewMsg (TV.view games.tree)
                 ]
-            , Grid.col [ Col.sm9 ] (List.concat <| List.map (gameFolderContent games) pageWithSections)
+            , Grid.col [ Col.sm9 ] (paginationBlock ++ (List.concat <| List.map (gameFolderContent games) pageWithSections) ++ paginationBlock)
             ]
         ]
 
@@ -2151,7 +2174,7 @@ gameCard model game =
             Block.text []
                 (case gameSystem game of
                     Just s ->
-                        [ cardBadge Badge.badgeSuccess s ]
+                        List.map2 cardBadge [ Badge.badgeSecondary, Badge.badgeDark, Badge.badgeDark ] (String.split " - " s)
 
                     Nothing ->
                         let
