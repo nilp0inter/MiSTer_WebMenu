@@ -403,7 +403,7 @@ func BuildSendInput() func(http.ResponseWriter, *http.Request) {
 func ScanForGames(w http.ResponseWriter, r *http.Request) {
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
-	games := make(chan [4]string)
+	games := make(chan [5]string)
 	scanPathParam, ok := r.URL.Query()["path"]
 	if !ok {
 		return
@@ -578,10 +578,11 @@ func IsKnownExt(ext string) bool {
 	return false
 }
 
-func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db *bolt.DB, crc_ring, size_ring *ring.Ring, games chan<- [4]string) error {
+func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db *bolt.DB, crc_ring, size_ring *ring.Ring, games chan<- [5]string) error {
 	buf_size := make([]byte, 8)
 	for _, zf := range file.File {
-		composePath := filepath.Join(filename, zf.FileHeader.Name)
+		zipDir := pathlib.Dir(filename)
+		zipName := pathlib.Base(filename)
 		ext := strings.TrimLeft(strings.ToLower(filepath.Ext(zf.FileHeader.Name)), ".")
 		if IsKnownExt(ext) {
 			// Check SIZE against bloom
@@ -589,7 +590,8 @@ func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db 
 			if !size_ring.Test(buf_size) {
 				// Not a single known file matched size
 				// fmt.Println("Skip (size)", composePath)
-				games <- [4]string{composePath[len(basePath):], "", "", ""}
+				// ["/path/to", "filename.zip/inside/zip.txt", ....]
+				games <- [5]string{zipDir[len(basePath):], path.Join(zipName, zf.FileHeader.Name), "", "", ""}
 				return nil
 			}
 
@@ -599,7 +601,7 @@ func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db 
 			if !crc_ring.Test(buf_crc) {
 				// Not a single known file matched size
 				// fmt.Println("Skip (crc32)", composePath)
-				games <- [4]string{composePath[len(basePath):], "", "", ""}
+				games <- [5]string{zipDir[len(basePath):], path.Join(zipName, zf.FileHeader.Name), "", "", ""}
 				return nil
 			}
 
@@ -623,9 +625,9 @@ func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db 
 				if v != nil {
 					// fmt.Println("Found", composePath, string(v))
 					values := strings.SplitN(string(v), ";", 2)
-					games <- [4]string{composePath[len(basePath):], values[1], values[0], md5}
+					games <- [5]string{zipDir[len(basePath):], path.Join(zipName, zf.FileHeader.Name), values[1], values[0], md5}
 				} else {
-					games <- [4]string{composePath[len(basePath):], "", "", ""}
+					games <- [5]string{zipDir[len(basePath):], path.Join(zipName, zf.FileHeader.Name), "", "", ""}
 				}
 				return nil
 			})
@@ -637,7 +639,7 @@ func ScanZipForGames(basePath string, filename string, file *zip.ReadCloser, db 
 	return nil
 }
 
-func ScanGames(basePath string, games chan<- [4]string) error {
+func ScanGames(basePath string, games chan<- [5]string) error {
 
 	defer close(games)
 
@@ -697,7 +699,7 @@ func ScanGames(basePath string, games chan<- [4]string) error {
 			if !size_ring.Test(buf_size) {
 				// Not a single known file matched size
 				// fmt.Println("Skip (size)", path)
-				games <- [4]string{path[len(basePath):], "", "", ""}
+				games <- [5]string{pathlib.Dir(path[len(basePath):]), pathlib.Base(path), "", "", ""}
 				return nil
 			}
 
@@ -719,9 +721,9 @@ func ScanGames(basePath string, games chan<- [4]string) error {
 				if v != nil {
 					// fmt.Println("Found", path, string(v))
 					values := strings.SplitN(string(v), ";", 2)
-					games <- [4]string{path[len(basePath):], values[1], values[0], md5}
+					games <- [5]string{pathlib.Dir(path[len(basePath):]), pathlib.Base(path), values[1], values[0], md5}
 				} else {
-					games <- [4]string{path[len(basePath):], "", "", ""}
+					games <- [5]string{pathlib.Dir(path[len(basePath):]), pathlib.Base(path), "", "", ""}
 				}
 				return nil
 			})

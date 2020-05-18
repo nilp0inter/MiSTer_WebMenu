@@ -256,18 +256,18 @@ platformDecoder =
         (Decode.field "codename" (Decode.list Decode.string))
 
 
-toGame : String -> String -> String -> String -> Game
-toGame path name system md5 =
+toGame : String -> String -> String -> String -> String -> Game
+toGame path filename name system md5 =
     if name == "" || system == "" || md5 == "" then
-        UnrecognizedGame { path = path }
+        UnrecognizedGame { path = path, filename = filename }
 
     else
-        RecognizedGame { path = path, name = name, system = system, md5 = md5 }
+        RecognizedGame { path = path, filename = filename, name = name, system = system, md5 = md5 }
 
 
 gameDecoder : String -> Decode.Decoder Game
 gameDecoder prefix =
-    Decode.map4 toGame
+    Decode.map5 toGame
         (Decode.map2 (++)
             (Decode.succeed prefix)
             (Decode.index 0 Decode.string)
@@ -275,6 +275,7 @@ gameDecoder prefix =
         (Decode.index 1 Decode.string)
         (Decode.index 2 Decode.string)
         (Decode.index 3 Decode.string)
+        (Decode.index 4 Decode.string)
 
 
 type alias Flags =
@@ -300,7 +301,6 @@ type alias GameTree =
 
 type alias GameFolder =
     { label : String
-    , content : Maybe (List Game)
     , path : String
     }
 
@@ -308,12 +308,14 @@ type alias GameFolder =
 type Game
     = RecognizedGame
         { path : String
+        , filename : String
         , name : String
         , system : String
         , md5 : String
         }
     | UnrecognizedGame
         { path : String
+        , filename : String
         }
 
 
@@ -770,7 +772,7 @@ update msg model =
                                     Dict.insert path True current.loaded
 
                                 new =
-                                    DE.groupBy (gamePath >> getBasePath) games
+                                    DE.groupBy gamePath games
 
                                 list =
                                     Dict.merge
@@ -799,7 +801,7 @@ update msg model =
                         --     TV.initializeModel gameTreeCfg []
                         ( tree, _ ) =
                             TV.expandOnly underMedia <|
-                                TV.initializeModel gameTreeCfg (buildGameNodes "root" value)
+                                TV.initializeModel gameTreeCfg (buildGameNodes "/" value)
 
                         loaded =
                             Dict.fromList
@@ -1613,13 +1615,25 @@ coreTreeCfg =
 -- CSS classes to use
 
 
-contentToNode : ( String, GameTree ) -> T.Node GameFolder
-contentToNode ( label, folder ) =
+hasScannedChildren : GameTree -> Bool
+hasScannedChildren folder =
+    case folder.contents of
+        Contents cs ->
+            folder.scanned || List.any hasScannedChildren (Dict.values cs)
+
+
+contentToNode : Bool -> ( String, GameTree ) -> T.Node GameFolder
+contentToNode hasScannedParent ( label, folder ) =
     case folder.contents of
         Contents cs ->
             T.Node
-                { data = { label = label, content = Nothing, path = folder.path }
-                , children = List.map contentToNode (Dict.toList cs)
+                { data = { label = label, path = folder.path }
+                , children =
+                    if hasScannedParent || folder.scanned then
+                        List.map (contentToNode True) (Dict.toList cs)
+
+                    else
+                        List.map (contentToNode False) <| List.filter (\( l, f ) -> hasScannedChildren f) (Dict.toList cs)
                 }
 
 
@@ -1628,8 +1642,8 @@ buildGameNodes label folder =
     case folder.contents of
         Contents cs ->
             [ T.Node
-                { data = { label = label, content = Nothing, path = folder.path }
-                , children = List.map contentToNode (Dict.toList cs)
+                { data = { label = label, path = folder.path }
+                , children = List.map (contentToNode False) (Dict.toList cs)
                 }
             ]
 
@@ -1988,8 +2002,6 @@ pageGamesLoadedContent games =
         onlyPopulated =
             Dict.filter (\k v -> not <| List.isEmpty v) filtered
 
-        -- pages =
-        --     greedyGroupsOf 90 (List.sortBy (gamePath >> getBasePath) filtered)
         pages =
             greedyGroupsOf 90 <| List.take 900 <| List.concat <| List.map (\( a, xs ) -> xs) <| Dict.toList onlyPopulated
 
@@ -1999,7 +2011,7 @@ pageGamesLoadedContent games =
         -- activePagination =
         --     List.length pages > 1
         pageWithSections =
-            selectedPage |> DE.groupBy (gamePath >> getBasePath) |> Dict.toList
+            selectedPage |> DE.groupBy gamePath |> Dict.toList
     in
     Grid.container []
         [ Grid.row []
@@ -2051,15 +2063,6 @@ getFilename p =
         |> Maybe.andThen (\xs -> Just (String.join "." xs))
 
 
-getBasePath : String -> String
-getBasePath p =
-    Maybe.withDefault p
-        (Just (String.split "/" p)
-            |> Maybe.andThen List.Extra.init
-            |> Maybe.andThen (\xs -> Just (String.join "/" xs))
-        )
-
-
 getExt : String -> Maybe String
 getExt p =
     case last (String.split "." p) of
@@ -2077,12 +2080,7 @@ gameName game =
             g.name
 
         UnrecognizedGame g ->
-            case getFilename g.path of
-                Nothing ->
-                    g.path
-
-                Just name ->
-                    name
+            gameFilename game
 
 
 gamePath : Game -> String
@@ -2093,6 +2091,16 @@ gamePath game =
 
         UnrecognizedGame g ->
             g.path
+
+
+gameFilename : Game -> String
+gameFilename game =
+    case game of
+        RecognizedGame g ->
+            g.filename
+
+        UnrecognizedGame g ->
+            g.filename
 
 
 gameMD5 : Game -> Maybe String
@@ -2151,7 +2159,7 @@ gameCard model game =
                                 [ cardBadge Badge.badgeDanger "Unknown System" ]
 
                             extBadge =
-                                [ cardBadge Badge.badgeDark (Maybe.withDefault "No Extension" (getExt <| gamePath game)) ]
+                                [ cardBadge Badge.badgeDark (Maybe.withDefault "No Extension" (getExt <| gameFilename game)) ]
                         in
                         systemBadge ++ extBadge
                 )
