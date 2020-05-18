@@ -409,7 +409,7 @@ init flags url key =
                 , cores = CoresNotFound
                 , games = GamesNotFound
                 , platforms = Nothing
-                , waiting = 3 -- Per loadCores, loadPlatforms, ...
+                , waiting = 2 -- Per loadCores ...
                 , messages = []
                 , currentVersion = ""
                 , latestRelease = ""
@@ -428,7 +428,6 @@ init flags url key =
         , navCmd
         , loadCores
         , syncGames -- XXX
-        , loadPlatforms
         , checkCurrentVersion
         ]
     )
@@ -449,8 +448,6 @@ type Msg
     | ScanGames
     | GotCores (Result Http.Error (List Core))
     | FilterCores String
-    | FilterGames String
-    | GotPlatforms (Result Http.Error (Maybe (List Platform)))
     | GotGameScan String (Result Http.Error (List Game))
     | ClosePanel Int Alert.Visibility
     | GotCurrentVersion (Result Http.Error String)
@@ -463,10 +460,11 @@ type Msg
     | Reload
     | MissingThumbnail String
     | CoreTreeViewMsg (TV.Msg String)
-    | GameTreeViewMsg (TV.Msg String)
     | CorePaginationMsg Int
-    | GamePaginationMsg Int
     | SelectCore (Maybe Core)
+    | GameTreeViewMsg (TV.Msg String)
+    | FilterGames String
+    | GamePaginationMsg Int
     | GameMissingThumbnail String
 
 
@@ -576,14 +574,6 @@ update msg model =
 
         ClosePanel id vis ->
             ( { model | messages = List.indexedMap (changePanelVisibility vis id) model.messages }, Cmd.none )
-
-        GotPlatforms p ->
-            case p of
-                Ok ps ->
-                    ( { model | waiting = model.waiting - 1, platforms = ps }, Cmd.none )
-
-                Err e ->
-                    ( { model | waiting = model.waiting - 1, platforms = Nothing }, Cmd.none )
 
         FilterCores s ->
             if s == "" then
@@ -1119,14 +1109,6 @@ loadCores =
     Http.get
         { url = relative [ "cached", "cores.json" ] []
         , expect = Http.expectJson GotCores coreDecoder
-        }
-
-
-loadPlatforms : Cmd Msg
-loadPlatforms =
-    Http.get
-        { url = staticData [ "platforms.json" ]
-        , expect = Http.expectJson GotPlatforms (Decode.nullable (Decode.list platformDecoder))
         }
 
 
