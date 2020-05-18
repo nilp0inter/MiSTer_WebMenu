@@ -857,7 +857,12 @@ update msg model =
                                 Just s
                     in
                     ( { model
-                        | games = GamesLoaded { games | filter = filter }
+                        | games =
+                            GamesLoaded
+                                { games
+                                    | filter = filter
+                                    , page = 0
+                                }
                       }
                     , Cmd.none
                     )
