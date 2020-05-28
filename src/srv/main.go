@@ -243,6 +243,7 @@ func main() {
 	r.HandleFunc("/api/folder/scan", ScanForFolders)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
 	r.HandleFunc("/api/games/scan", ScanForGames)
+	r.HandleFunc("/api/games/db/update", UpdateGameDB).Methods("POST")
 	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir(system.CachePath))))
 	r.PathPrefix("/").Handler(http.FileServer(statikFS))
 
@@ -822,4 +823,13 @@ func ScanForFolders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Write(b)
+}
+
+func UpdateGameDB(w http.ResponseWriter, r *http.Request) {
+	err := update.UpdateGameDB()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
 }

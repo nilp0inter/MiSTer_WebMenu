@@ -92,3 +92,26 @@ func UpdateSystem(version string) error {
 
 	return nil
 }
+
+func uncompressLZMA(filepath string) error {
+	cmd := exec.Command("/bin/sh", "-c", "lzma -d \"${FILE_PATH}\"")
+	cmd.Env = append(os.Environ(), "FILE_PATH="+filepath)
+	return cmd.Run()
+}
+
+func UpdateGameDB() error {
+	url := "https://github.com/nilp0inter/MiSTer_WebMenu_DataBank/releases/download/latest/databank.db.xz"
+	downloadDB := path.Join(system.CachePath, "databank.db.xz")
+
+	err := downloadFile(downloadDB, url)
+	if err != nil {
+		return err
+	}
+
+	err = uncompressLZMA(downloadDB)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
