@@ -2145,7 +2145,7 @@ ifNotGameMissing m s =
 gameCard : GameInfo -> Game -> Card.Config Msg
 gameCard model game =
     let
-        title =
+        titleText =
             gameName game
 
         imgSrc =
@@ -2176,11 +2176,17 @@ gameCard model game =
 
         thumbnail =
             if imgSrc == "" then
-                Card.block [ Block.attrs [ class "text-muted", class "d-flex", class "justify-content-center", class "align-items-center", class "corenoimg" ] ]
-                    [ Block.text [] [ text "No image available" ] ]
+                Card.block [ Block.attrs [ class "text-muted"
+                                         , class "d-flex"
+                                         , class "justify-content-center"
+                                         , class "align-items-center"
+                                         , class "corenoimg" ] ]
+                    [ Block.text [] [ text titleText ] ]
 
             else
-                Card.imgTop [ src imgSrc, on "error" (Decode.succeed (GameMissingThumbnail imgSrc)) ] []
+                Card.imgTop [ src imgSrc
+                            , title titleText
+                            , on "error" (Decode.succeed (GameMissingThumbnail imgSrc)) ] []
 
         path =
             gamePath game
@@ -2190,7 +2196,6 @@ gameCard model game =
         , Card.attrs
             [ Spacing.mb4 ]
         ]
-        |> Card.header [ class "text-center" ] [ text title ]
         |> thumbnail
         |> Card.block
             [ Block.attrs
