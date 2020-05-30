@@ -1817,9 +1817,13 @@ coreFolderContent m ( path, cs ) =
     [ brFromPath path ] ++ coreContent m cs
 
 
+coreKeyAndCard : Model -> Core -> (String, Card.Config Msg)
+coreKeyAndCard m c = ((cPath c) ++ "/" ++ (cFilename c), coreCard m c)
+
+
 coreContent : Model -> List Core -> List (Html Msg)
 coreContent m cs =
-    List.map Card.deck (partition 3 emptyCard (List.map (coreCard m) cs))
+    List.map Card.keyedDeck (partition 3 ("", emptyCard) (List.map (coreKeyAndCard m) cs))
 
 
 emptyCard =
