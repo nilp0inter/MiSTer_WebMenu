@@ -1339,73 +1339,84 @@ sectionHeading title motto =
 pageSettingsPage : Model -> List (Html Msg)
 pageSettingsPage model =
     [ sectionHeading "Settings" "WebMenu and MiSTer configuration"
-    , Card.deck
-        [ Card.config [ Card.outlineLight ]
-            |> Card.block [] (scanCoresBlock model)
-        , Card.config [ Card.outlineLight ]
-            |> Card.block [] (checkForUpdatesBlock model)
-            |> Card.block []
-                (case model.updateStatus of
-                    UpdateAvailable ->
-                        updateAvailableBlock model
-
-                    OnLatestRelease ->
-                        onLatestReleaseBlock model
-
-                    Updating ->
-                        updateAvailableBlock model
-
-                    WaitingForReboot ->
-                        updateAvailableBlock model
-
-                    _ ->
-                        []
-                )
-        , Card.config [ Card.outlineLight ]
-            |> Card.block [] (scanGamesBlock model)
-        ]
+    , scanCoresBlock model
+    , scanGamesBlock model
+    , checkForUpdatesBlock model
     ]
 
-scanGamesBlock moel =
-    [ Block.titleH2 [] [ text "Games" ]
-    , Block.text []
-        [ p [] [ text "Click on 'Scan now' to start scanning for available games in your MiSTer." ]
-        ]
-    ]
+scanGamesBlock model =
+    Card.config [ Card.outlineDark
+                , Card.attrs [ Spacing.mb3 ]
+                ]
+      |> Card.headerH3 [] [ text "Games" ]
+      |> Card.block []
+          [ Block.text []
+              [ p [] [ text "Click on 'Scan now' to start scanning for available games in your MiSTer." ]
+              ]
+          ]
+      |> Card.view
+
+    
 
 scanCoresBlock model =
-    [ Block.titleH2 [] [ text "Cores" ]
-    , Block.text []
-        [ p [] [ text "Click on 'Scan now' to start scanning for available cores in your MiSTer." ]
-        , p [] [ text "This may take a couple of minutes depending on the number of files in your SD card." ]
-        ]
-    , Block.custom <|
-        Button.button
-            [ Button.disabled (model.cores == ScanningCores)
-            , Button.primary
-            , Button.onClick (ScanCores True)
-            ]
-            [ text "Scan now" ]
-    ]
+    Card.config [ Card.outlineDark
+                , Card.attrs [ Spacing.mb3 ]
+                ]
+        |> Card.headerH3 [] [ text "Cores" ]
+        |> Card.block []
+               [ Block.text [] [ p [] [ text "Click on 'Scan now' to start scanning for available cores in your MiSTer." ]
+                               , p [] [ text "This may take a couple of minutes depending on the number of files in your SD card." ]
+                               ]
+               , Block.custom <|
+                   Button.button
+                       [ Button.disabled (model.cores == ScanningCores)
+                       , Button.primary
+                       , Button.onClick (ScanCores True)
+                       ]
+                       [ text "Scan now" ]
+               ]
+        |> Card.view
 
 
 checkForUpdatesBlock model =
-    [ Block.titleH2 [] [ text "WebMenu Update" ]
-    , Block.text []
-        [ p [] [ text "Check for new releases of WebMenu." ]
-        , p []
-            [ text "You are currently running "
-            , strong [] [ text model.currentVersion ]
-            ]
-        ]
-    , Block.custom <|
-        Button.button
-            [ Button.disabled (model.updateStatus == ReadyToCheck)
-            , Button.info
-            , Button.onClick CheckLatestRelease
-            ]
-            [ text "Check for updates" ]
-    ]
+    Card.config [ Card.outlineDark
+                , Card.attrs [ Spacing.mb3 ]
+                ]
+      |> Card.headerH3 [] [ text "WebMenu Update" ]
+      |> Card.block []
+          [ Block.text []
+              [ p [] [ text "Check for new releases of WebMenu." ]
+              , p []
+                  [ text "You are currently running "
+                  , strong [] [ text model.currentVersion ]
+                  ]
+              ]
+          , Block.custom <|
+              Button.button
+                  [ Button.disabled (model.updateStatus == ReadyToCheck)
+                  , Button.info
+                  , Button.onClick CheckLatestRelease
+                  ]
+                  [ text "Check for updates" ]
+          ]
+      |> Card.block []
+          (case model.updateStatus of
+              UpdateAvailable ->
+                  updateAvailableBlock model
+
+              OnLatestRelease ->
+                  onLatestReleaseBlock model
+
+              Updating ->
+                  updateAvailableBlock model
+
+              WaitingForReboot ->
+                  updateAvailableBlock model
+
+              _ ->
+                  []
+          )
+      |> Card.view
 
 
 onLatestReleaseBlock model =
