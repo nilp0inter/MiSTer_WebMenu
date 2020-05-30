@@ -2081,9 +2081,12 @@ gameFolderContent m ( path, cs ) =
     [ gameBrFromPath path ] ++ gameContent m cs
 
 
+gameKeyAndCard : GameInfo -> Game -> (String, Card.Config Msg)
+gameKeyAndCard m g = ((gamePath g) ++ "/" ++ (gameFilename g), gameCard m g)
+
 gameContent : GameInfo -> List Game -> List (Html Msg)
 gameContent m cs =
-    List.map Card.deck (partition 3 emptyCard (List.map (gameCard m) cs))
+    List.map Card.keyedDeck (partition 3 ("", emptyCard) (List.map (gameKeyAndCard m) cs))
 
 
 getFilename : String -> Maybe String
