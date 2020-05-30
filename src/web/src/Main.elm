@@ -31,6 +31,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (on, onClick, onInput)
 import Http
+import Html.Keyed as Keyed
 import Json.Decode as Decode exposing (Decoder)
 import List.Extra exposing (getAt, greedyGroupsOf, last, stripPrefix)
 import Process
@@ -1778,13 +1779,16 @@ mergeAdding l r =
 
 coreSearch : Model -> Html Msg
 coreSearch model =
+    Keyed.node "div" [] [ ("core-search", (
     Form.form [ class "mb-4" ]
         [ InputGroup.config
-            (InputGroup.text [ Input.attrs [ onInput FilterCores ] ])
+            (InputGroup.search [ Input.attrs [ onInput FilterCores ]
+                               , Input.value (Maybe.withDefault "" model.coreFilter) ])
             |> InputGroup.predecessors
                 [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
             |> InputGroup.view
         ]
+    )) ]
 
 
 matchCoreByString : String -> Core -> Bool
@@ -2010,15 +2014,18 @@ pageGamesPageContent model =
             pageGamesLoadedContent games
 
 
-gameSearch : Html Msg
-gameSearch =
-    Form.form [ class "mb-4" ]
-        [ InputGroup.config
-            (InputGroup.text [ Input.attrs [ onInput FilterGames ] ])
-            |> InputGroup.predecessors
-                [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
-            |> InputGroup.view
-        ]
+gameSearch : Maybe String -> Html Msg
+gameSearch f =
+    Keyed.node "div" [] [ ("game-search", (
+        Form.form [ class "mb-4" ]
+            [ InputGroup.config
+                (InputGroup.search [ Input.attrs [ onInput FilterGames ]
+                                   , Input.value (Maybe.withDefault "" f) ])
+                |> InputGroup.predecessors
+                    [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
+                |> InputGroup.view
+            ]
+    )) ]
 
 
 filterGame : String -> Game -> Bool
@@ -2080,7 +2087,7 @@ pageGamesLoadedContent games =
     Grid.container []
         [ Grid.row []
             [ Grid.col [ Col.sm3 ]
-                [ gameSearch
+                [ gameSearch games.filter
                 , Html.map GameTreeViewMsg (TV.view games.tree)
                 ]
             , Grid.col [ Col.sm9 ] (paginationBlock ++ (List.concat <| List.map (gameFolderContent games) pageWithSections) ++ paginationBlock)
