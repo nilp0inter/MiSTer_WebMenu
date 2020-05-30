@@ -1,4 +1,4 @@
-.PHONY: deploy
+.PHONY: deploy develop
 
 MISTER_SCRIPTS = /media/fat/Scripts
 MISTER_USER = root
@@ -24,3 +24,5 @@ deploy: webmenu.sh
 	scp webmenu.sh ${MISTER_USER}@${MISTER_HOST}:${MISTER_SCRIPTS}
 	ssh ${MISTER_USER}@${MISTER_HOST} '${MISTER_SCRIPTS}/webmenu.sh </dev/null >/dev/null 2>&1'
 
+develop:
+	find . -type f -name '*.elm' -or -name '*.go' -or -name '*.html' -or -name '*.sh' | entr -cd make deploy

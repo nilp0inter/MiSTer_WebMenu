@@ -10,6 +10,7 @@ with import (builtins.fetchTarball {
                     git
                     statik
                     elmPackages.elm
+		    entr
                     nodePackages.uglify-js
                     nodePackages.elm-oracle
                     elmPackages.elm-format
