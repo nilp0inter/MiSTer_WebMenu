@@ -427,7 +427,7 @@ init flags url key =
         [ urlCmd
         , navCmd
         , loadCores
-        , syncGames -- XXX
+        , loadGameFolders
         , checkCurrentVersion
         ]
     )
@@ -442,11 +442,12 @@ type Msg
     | LoadGame String String String
     | GameLoaded (Result Http.Error ())
     | CoreSyncFinished (Result Http.Error ())
-    | GameSyncFinished (Result Http.Error GameTree)
+    | GameFolderFinished (Result Http.Error ())
     | LoadCores
     | ScanCores Bool
     | ScanGames
     | GotCores (Result Http.Error (List Core))
+    | GotGameFolders (Result Http.Error GameTree)
     | FilterCores String
     | GotGameScan String (Result Http.Error (List Game))
     | ClosePanel Int Alert.Visibility
@@ -752,7 +753,7 @@ update msg model =
             )
 
         ScanGames ->
-            ( model, syncGames )
+            ( model, syncGameFolder )
 
         GotGameScan path res ->
             case res of
@@ -785,12 +786,18 @@ update msg model =
                 Err err ->
                     ( model, Cmd.none )
 
-        GameSyncFinished res ->
+        GameFolderFinished res ->
+            case res of
+                Ok _ ->
+                    ( model, loadGameFolders )
+
+                Err value ->
+                    ( model, Cmd.none )
+
+        GotGameFolders res ->
             case res of
                 Ok value ->
                     let
-                        -- tree =
-                        --     TV.initializeModel gameTreeCfg []
                         ( tree, _ ) =
                             TV.expandOnly underMedia <|
                                 TV.initializeModel gameTreeCfg (buildGameNodes "/" value)
@@ -1100,12 +1107,12 @@ gameTreeDecoder =
         (Decode.field "contents" (Decode.map Contents (Decode.dict (Decode.lazy (\_ -> gameTreeDecoder)))))
 
 
-syncGames : Cmd Msg
-syncGames =
+syncGameFolder : Cmd Msg
+syncGameFolder =
     Http.get
         { url =
             relative [ "api", "folder", "scan" ] [ string "path" "/media" ]
-        , expect = Http.expectJson GameSyncFinished gameTreeDecoder
+        , expect = Http.expectWhatever GameFolderFinished
         }
 
 
@@ -1116,6 +1123,12 @@ loadCores =
         , expect = Http.expectJson GotCores coreDecoder
         }
 
+loadGameFolders : Cmd Msg
+loadGameFolders =
+    Http.get
+        { url = relative [ "cached", "folders.json" ] []
+        , expect = Http.expectJson GotGameFolders gameTreeDecoder
+        }
 
 decodeJsonLines : Decoder a -> String -> Result Decode.Error (List a)
 decodeJsonLines decoder lines =
@@ -1330,9 +1343,17 @@ pageSettingsPage model =
                     _ ->
                         []
                 )
+        , Card.config [ Card.outlineLight ]
+            |> Card.block [] (scanGamesBlock model)
         ]
     ]
 
+scanGamesBlock moel =
+    [ Block.titleH2 [] [ text "Games" ]
+    , Block.text []
+        [ p [] [ text "Click on 'Scan now' to start scanning for available games in your MiSTer." ]
+        ]
+    ]
 
 scanCoresBlock model =
     [ Block.titleH2 [] [ text "Cores" ]

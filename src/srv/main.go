@@ -799,7 +799,6 @@ func ScanFolders(basePath string, recursive bool) (*Path, error) {
 }
 
 func ScanForFolders(w http.ResponseWriter, r *http.Request) {
-	// TODO cache and flag based on mtime
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
 
@@ -822,7 +821,10 @@ func ScanForFolders(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 		return
 	}
-	w.Write(b)
+	err = ioutil.WriteFile(system.FoldersDBPath, b, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func UpdateGameDB(w http.ResponseWriter, r *http.Request) {
