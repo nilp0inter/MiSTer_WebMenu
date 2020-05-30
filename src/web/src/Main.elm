@@ -291,10 +291,16 @@ type CoreState
 type Contents
     = Contents (Dict String GameTree)
 
+type ScanStatus
+    = ScanFound
+    | ScanMissing
+    | ScanRequested
+    | ScanDeleteRequested
+
 
 type alias GameTree =
     { path : String
-    , scanned : Bool
+    , scanned : ScanStatus
     , contents : Contents
     }
 
@@ -323,6 +329,7 @@ type alias GameInfo =
     { tree : TV.Model GameFolder String Never ()
     , loaded : Dict String Bool
     , list : Dict String (List Game)
+    , topFolder : Maybe GameTree
     , folder : Maybe GameFolder
     , filter : Maybe String
     , page : Int
@@ -815,6 +822,7 @@ update msg model =
                                 { tree = tree
                                 , loaded = loaded
                                 , list = list
+                                , topFolder = Just value
                                 , folder = Nothing
                                 , filter = Nothing
                                 , page = 0
@@ -907,7 +915,7 @@ initLoadedGameFolders : GameTree -> List ( String, Bool )
 initLoadedGameFolders tree =
     let
         head =
-            if tree.scanned then
+            if tree.scanned == ScanFound then
                 [ ( tree.path, False ) ]
 
             else
@@ -1099,12 +1107,21 @@ syncCores force =
         , expect = Http.expectWhatever CoreSyncFinished
         }
 
+boolToScanStatus : Bool -> ScanStatus
+boolToScanStatus x =
+    case x of
+        True -> ScanFound
+        False -> ScanMissing
+
+scanStatusDecoder : Decode.Decoder ScanStatus
+scanStatusDecoder =
+    Decode.map boolToScanStatus Decode.bool
 
 gameTreeDecoder : Decode.Decoder GameTree
 gameTreeDecoder =
     Decode.map3 GameTree
         (Decode.field "path" Decode.string)
-        (Decode.field "scanned" Decode.bool)
+        (Decode.field "scanned" scanStatusDecoder)
         (Decode.field "contents" (Decode.map Contents (Decode.dict (Decode.lazy (\_ -> gameTreeDecoder)))))
 
 
@@ -1643,7 +1660,7 @@ hasScannedChildren : GameTree -> Bool
 hasScannedChildren folder =
     case folder.contents of
         Contents cs ->
-            folder.scanned || List.any hasScannedChildren (Dict.values cs)
+            folder.scanned == ScanFound || List.any hasScannedChildren (Dict.values cs)
 
 
 contentToNode : Bool -> ( String, GameTree ) -> T.Node GameFolder
@@ -1653,7 +1670,7 @@ contentToNode hasScannedParent ( label, folder ) =
             T.Node
                 { data = { label = label, path = folder.path }
                 , children =
-                    if hasScannedParent || folder.scanned then
+                    if hasScannedParent || folder.scanned == ScanFound then
                         List.map (contentToNode True) (Dict.toList cs)
 
                     else
