@@ -844,6 +844,7 @@ update msg model =
                                 { games
                                     | tree = tree
                                     , folder = folder
+                                    , page = 0
                                 }
                       }
                     , Cmd.none
