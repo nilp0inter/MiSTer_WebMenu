@@ -1,4 +1,4 @@
-.PHONY: deploy develop
+.PHONY: deploy develop-all develop-web
 
 MISTER_SCRIPTS = /media/fat/Scripts
 MISTER_USER = root
@@ -24,5 +24,8 @@ deploy: webmenu.sh
 	scp webmenu.sh ${MISTER_USER}@${MISTER_HOST}:${MISTER_SCRIPTS}
 	ssh ${MISTER_USER}@${MISTER_HOST} '${MISTER_SCRIPTS}/webmenu.sh </dev/null >/dev/null 2>&1'
 
-develop:
+develop-all:
 	find . -type f -name '*.elm' -or -name '*.go' -or -name '*.html' -or -name '*.sh' | entr -cd make deploy
+
+develop-web:
+	cd web && elm-live src/Main.elm -h 0.0.0.0 --open -d build --start-page=index.html -- --output=build/elm.min.js
