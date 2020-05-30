@@ -93,8 +93,8 @@ func UpdateSystem(version string) error {
 	return nil
 }
 
-func uncompressLZMA(filepath string) error {
-	cmd := exec.Command("/bin/sh", "-c", "lzma -d \"${FILE_PATH}\"")
+func decompressLZMA(filepath string) error {
+	cmd := exec.Command("/bin/sh", "-c", "xz -fd \"${FILE_PATH}\"")
 	cmd.Env = append(os.Environ(), "FILE_PATH="+filepath)
 	return cmd.Run()
 }
@@ -108,7 +108,7 @@ func UpdateGameDB() error {
 		return err
 	}
 
-	err = uncompressLZMA(downloadDB)
+	err = decompressLZMA(downloadDB)
 	if err != nil {
 		return err
 	}
