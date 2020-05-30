@@ -1,4 +1,4 @@
-.PHONY: deploy develop-all develop-web
+.PHONY: deploy develop-all develop-web ssh
 
 MISTER_SCRIPTS = /media/fat/Scripts
 MISTER_USER = root
@@ -29,3 +29,6 @@ develop-all:
 
 develop-web:
 	cd web && elm-live src/Main.elm -h 0.0.0.0 --open -d build --start-page=index.html -- --output=build/elm.min.js
+
+ssh:
+	ssh ${MISTER_USER}@${MISTER_HOST}
