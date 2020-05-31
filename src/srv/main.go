@@ -405,6 +405,7 @@ func RunScript(w http.ResponseWriter, r *http.Request) {
 	L.SetGlobal("sleep", L.NewFunction(LUASleep))
 	L.SetGlobal("load_core", L.NewFunction(LUALoadCore))
 	L.SetGlobal("mount", L.NewFunction(LUAMount))
+	L.SetGlobal("match", L.NewFunction(LUAMatch))
 
 	if err := json.Unmarshal(body, &res); err != nil {
 		http.Error(w, "can't decode script", http.StatusBadRequest)
@@ -518,6 +519,17 @@ func LUAMount(L *lua.LState) int {
 	}
 
 	L.Push(lua.LTrue)
+	return 1
+}
+
+func LUAMatch(L *lua.LState) int {
+	exp := L.ToString(1)
+	s := L.ToString(2)
+	matched, err := regexp.Match(exp, []byte(s))
+	if err != nil {
+		L.RaiseError(err.Error())
+	}
+	L.Push(lua.LBool(matched))
 	return 1
 }
 
