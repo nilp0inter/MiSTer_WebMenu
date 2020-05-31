@@ -407,7 +407,6 @@ func RunScript(w http.ResponseWriter, r *http.Request) {
 	L.SetGlobal("mount", L.NewFunction(LUAMount))
 
 	if err := json.Unmarshal(body, &res); err != nil {
-		log.Printf("Error decoding script: %v", err)
 		http.Error(w, "can't decode script", http.StatusBadRequest)
 		return
 	}
@@ -416,47 +415,106 @@ func RunScript(w http.ResponseWriter, r *http.Request) {
 		L.SetGlobal(k, ToLValue(v))
 	}
 	if err := L.DoString(res.Source); err != nil {
-		log.Printf("Error running script: %v", err)
-		http.Error(w, "can't run script", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	return
+}
+
+func mount(src, dst string) error {
+	cmd := exec.Command("/bin/mount", "-o", "rbind,ro", src, dst)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	if err := cmd.Wait(); err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return err
+		}
+	}
+	return nil
+}
+
+func umount(dst string) error {
+	cmd := exec.Command("/bin/umount", dst)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	if err := cmd.Wait(); err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return err
+		}
+	}
+	return nil
 }
 
 func LUAMount(L *lua.LState) int {
 	src := L.ToString(1)
 	dst := L.ToString(2)
 	callback := L.ToFunction(3)
-	// TODO: check src & dst exists
-	// TODO: check src & dst are same type (file/directory)
-	// TODO: if dst doesn't exist, create it with the same type as src
-	// TODO: if src is file and dst is directory make tmpdir and a
-	// tmpfile and mount in the tmpfile
-	// TODO: if src is dir and dst is file abort
 
-	cmd := exec.Command("/bin/mount", "-o", "bind,ro", src, dst)
-	if err := cmd.Start(); err != nil {
-		log.Println("Error invoking mount", err)
-		L.Push(lua.LFalse)
-		return 1
+	srcStat, err := os.Stat(src)
+	if err != nil {
+		L.RaiseError(err.Error())
 	}
-	if err := cmd.Wait(); err != nil {
-		if exiterr, ok := err.(*exec.ExitError); ok {
-			log.Println("Error on mount", exiterr)
-			L.Push(lua.LFalse)
-			return 1
+
+	dstStat, err := os.Stat(dst)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			L.RaiseError(err.Error())
+		}
+		if srcStat.IsDir() {
+			os.MkdirAll(dst, os.ModePerm)
+		} else {
+			os.MkdirAll(pathlib.Dir(dst), os.ModePerm)
+			emptyFile, err := os.Create(dst)
+			if err != nil {
+				L.RaiseError(err.Error())
+			}
+			emptyFile.Close()
 		}
 	}
+	dstStat, err = os.Stat(dst)
+	if err != nil {
+		L.RaiseError(err.Error())
+	}
 
-	err := L.CallByParam(lua.P{
+	if !srcStat.IsDir() && dstStat.IsDir() {
+		dir, err := ioutil.TempDir("", "webmenu")
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		tmpfile := path.Join(dir, pathlib.Base(src))
+		emptyFile, err := os.Create(tmpfile)
+		if err != nil {
+			L.RaiseError(err.Error())
+		}
+		emptyFile.Close()
+		defer os.RemoveAll(dir) // clean up
+
+		if err := mount(src, tmpfile); err != nil {
+			L.RaiseError(err.Error())
+		}
+		defer umount(dst)
+		defer umount(path.Join(dst, pathlib.Base(src)))
+		defer umount(tmpfile)
+		src = dir
+	} else if srcStat.IsDir() && !dstStat.IsDir() {
+		L.RaiseError("Invalid combination mount 'dir' on 'file'")
+	}
+
+	if err := mount(src, dst); err != nil {
+		L.RaiseError(err.Error())
+	}
+	defer umount(dst)
+
+	err = L.CallByParam(lua.P{
 		Fn:      callback,
 		NRet:    0,
 		Protect: true,
 	})
 	if err != nil {
-		log.Println("Error on callback", err)
-		L.Push(lua.LFalse)
-		return 1
+		L.RaiseError(err.Error())
 	}
 
 	L.Push(lua.LTrue)
