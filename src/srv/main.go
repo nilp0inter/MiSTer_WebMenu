@@ -25,14 +25,15 @@ import (
 	"time"
 
 	"github.com/nilp0inter/MiSTer_WebMenu/fastwalk"
+	"github.com/nilp0inter/MiSTer_WebMenu/input"
 	_ "github.com/nilp0inter/MiSTer_WebMenu/statik"
 	"github.com/nilp0inter/MiSTer_WebMenu/system"
 	"github.com/nilp0inter/MiSTer_WebMenu/update"
 
-	"github.com/bendahl/uinput"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	"github.com/thetannerryan/ring"
+	lua "github.com/yuin/gopher-lua"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -69,6 +70,11 @@ type RBF struct {
 	Ctime     int64    `json:"ctime"`
 	LogicPath []string `json:"lpath"`
 	MD5       string   `json:"md5"`
+}
+
+type LUAScript struct {
+	Params map[string]interface{} `json:params"`
+	Source string                 `json:"source"`
 }
 
 func scanMRA(filename string) (MRA, error) {
@@ -237,8 +243,9 @@ func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/webmenu/reboot", PerformWebMenuReboot).Methods("POST")
 	r.HandleFunc("/api/update", PerformUpdate).Methods("POST")
+	r.HandleFunc("/api/script/run", RunScript).Methods("POST")
 	r.HandleFunc("/api/run", RunCoreWithGame)
-	r.HandleFunc("/api/input", BuildSendInput())
+	r.HandleFunc("/api/input", SendInput)
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
 	r.HandleFunc("/api/folder/scan", ScanForFolders)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
@@ -356,6 +363,136 @@ func PerformUpdate(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+func ToLValue(v interface{}) lua.LValue {
+	switch t := v.(type) {
+	case float64:
+		return lua.LNumber(t)
+	case bool:
+		return lua.LBool(t)
+	case string:
+		return lua.LString(t)
+	case nil:
+		return lua.LNil
+	case map[string]interface{}:
+		tbl := &lua.LTable{}
+		for k, v2 := range t {
+			tbl.RawSetString(k, ToLValue(v2))
+		}
+		return tbl
+	case []interface{}:
+		tbl := &lua.LTable{}
+		for _, v2 := range t {
+			tbl.Append(ToLValue(v2))
+		}
+		return tbl
+	default:
+		fmt.Printf("Type not implemented: %T %T\n", v, t)
+		return lua.LNil
+	}
+}
+func RunScript(w http.ResponseWriter, r *http.Request) {
+	var res LUAScript
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Error reading body: %v", err)
+		http.Error(w, "can't read body", http.StatusBadRequest)
+		return
+	}
+	L := lua.NewState()
+	defer L.Close()
+	L.SetGlobal("key_press", L.NewFunction(LUAKeyPress))
+	L.SetGlobal("sleep", L.NewFunction(LUASleep))
+	L.SetGlobal("load_core", L.NewFunction(LUALoadCore))
+	L.SetGlobal("mount", L.NewFunction(LUAMount))
+
+	if err := json.Unmarshal(body, &res); err != nil {
+		log.Printf("Error decoding script: %v", err)
+		http.Error(w, "can't decode script", http.StatusBadRequest)
+		return
+	}
+
+	for k, v := range res.Params {
+		L.SetGlobal(k, ToLValue(v))
+	}
+	if err := L.DoString(res.Source); err != nil {
+		log.Printf("Error running script: %v", err)
+		http.Error(w, "can't run script", http.StatusBadRequest)
+		return
+	}
+	return
+}
+
+func LUAMount(L *lua.LState) int {
+	src := L.ToString(1)
+	dst := L.ToString(2)
+	callback := L.ToFunction(3)
+	// TODO: check src & dst exists
+	// TODO: check src & dst are same type (file/directory)
+	// TODO: if dst doesn't exist, create it with the same type as src
+	// TODO: if src is file and dst is directory make tmpdir and a
+	// tmpfile and mount in the tmpfile
+	// TODO: if src is dir and dst is file abort
+
+	cmd := exec.Command("/bin/mount", "-o", "bind,ro", src, dst)
+	if err := cmd.Start(); err != nil {
+		log.Println("Error invoking mount", err)
+		L.Push(lua.LFalse)
+		return 1
+	}
+	if err := cmd.Wait(); err != nil {
+		if exiterr, ok := err.(*exec.ExitError); ok {
+			log.Println("Error on mount", exiterr)
+			L.Push(lua.LFalse)
+			return 1
+		}
+	}
+
+	err := L.CallByParam(lua.P{
+		Fn:      callback,
+		NRet:    0,
+		Protect: true,
+	})
+	if err != nil {
+		log.Println("Error on callback", err)
+		L.Push(lua.LFalse)
+		return 1
+	}
+
+	L.Push(lua.LTrue)
+	return 1
+}
+
+func LUALoadCore(L *lua.LState) int {
+	path := L.ToString(1)
+	err := launchGame(path)
+	L.Push(lua.LBool(err == nil))
+	return 1
+}
+
+func LUASleep(L *lua.LState) int {
+	millis := L.ToInt(1)
+	time.Sleep(time.Duration(millis) * time.Millisecond)
+	return 0
+}
+
+func LUAKeyPress(L *lua.LState) int {
+	code := L.ToInt(1)
+	err := input.Keyboard.KeyDown(code)
+	if err != nil {
+		L.Push(lua.LFalse)
+		return 1
+	}
+	time.Sleep(100 * time.Millisecond)
+	err = input.Keyboard.KeyUp(code)
+	if err != nil {
+		L.Push(lua.LFalse)
+		return 1
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
 func PerformWebMenuReboot(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.Command(system.WebMenuSHPath)
 	go func() {
@@ -364,40 +501,31 @@ func PerformWebMenuReboot(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-func BuildSendInput() func(http.ResponseWriter, *http.Request) {
-
-	// initialize keyboard and check for possible errors
-	keyboard, err := uinput.CreateKeyboard("/dev/uinput", []byte("WebMenu Virtual Keyboard"))
-	if err != nil {
-		return nil
+func SendInput(w http.ResponseWriter, r *http.Request) {
+	scode, ok := r.URL.Query()["code"]
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Version is mandatory"))
+		return
 	}
-
-	return func(w http.ResponseWriter, r *http.Request) {
-		scode, ok := r.URL.Query()["code"]
-		if !ok {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Version is mandatory"))
-			return
-		}
-		code, err := strconv.ParseInt(scode[0], 10, 8)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
-		err = keyboard.KeyDown(int(code))
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-		err = keyboard.KeyUp(int(code))
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
+	code, err := strconv.ParseInt(scode[0], 10, 8)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	err = input.Keyboard.KeyDown(int(code))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	time.Sleep(100 * time.Millisecond)
+	err = input.Keyboard.KeyUp(int(code))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
 	}
 }
 
