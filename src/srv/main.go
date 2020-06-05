@@ -88,6 +88,7 @@ func scanMRA(filename string) (MRA, error) {
 	c.Filename = pathlib.Base(filename)
 
 	// LPATH
+	c.LogicPath = make([]string, 0)
 	for _, d := range strings.Split(strings.TrimPrefix(baseDir, system.SdPath), "/") {
 		if strings.HasPrefix(d, "_") {
 			c.LogicPath = append(c.LogicPath, strings.TrimLeft(d, "_"))
@@ -172,6 +173,7 @@ func scanRBF(filename string) (RBF, error) {
 	}
 
 	// LPATH
+	c.LogicPath = make([]string, 0)
 	for _, d := range strings.Split(strings.TrimPrefix(pathlib.Dir(filename), system.SdPath), "/") {
 		if strings.HasPrefix(d, "_") {
 			c.LogicPath = append(c.LogicPath, strings.TrimLeft(d, "_"))
@@ -252,10 +254,9 @@ func ScanPath(base string, file os.FileInfo, cores *Cores) {
 	ext := strings.ToLower(pathlib.Ext(file.Name()))
 	isPrefix := strings.HasPrefix(file.Name(), "_")
 	filepath := path.Join(base, file.Name())
-	if file.IsDir() && isPrefix {
+	if file.IsDir() && (isPrefix || file.Name() == "cores") {
 		files, err := ioutil.ReadDir(filepath)
 		if err != nil {
-			fmt.Println(err)
 			return
 		}
 		for _, entry := range files {
@@ -265,7 +266,7 @@ func ScanPath(base string, file os.FileInfo, cores *Cores) {
 		fmt.Printf("RBF: %s\n", filepath)
 		c, err := scanRBF(filepath)
 		if err != nil {
-			log.Println(filepath, err)
+			// log.Println(filepath, err)
 		} else {
 			cores.RBFs = append(cores.RBFs, c)
 		}
@@ -273,7 +274,7 @@ func ScanPath(base string, file os.FileInfo, cores *Cores) {
 		fmt.Printf("MRA: %s\n", filepath)
 		c, err := scanMRA(filepath)
 		if err != nil {
-			log.Println(filepath, err)
+			// log.Println(filepath, err)
 		} else {
 			cores.MRAs = append(cores.MRAs, c)
 		}
@@ -289,13 +290,13 @@ func ScanForCores(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := os.Stat(system.CoresDBPath); doForce || err != nil {
 		var cores Cores
+		cores.MRAs = make([]MRA, 0)
+		cores.RBFs = make([]RBF, 0)
 
 		// Scan for RBFs & MRAs
 		topLevels, err := ioutil.ReadDir(system.SdPath)
 		for _, root := range topLevels {
-			if strings.HasPrefix(root.Name(), "_") {
-				ScanPath(system.SdPath, root, &cores)
-			}
+			ScanPath(system.SdPath, root, &cores)
 		}
 
 		b, err := json.Marshal(cores)
