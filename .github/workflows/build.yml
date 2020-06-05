@@ -12,6 +12,7 @@ on:
       - '*'
     branches:
       - master
+      - 'hotfix/*'
 jobs:
   build:
     runs-on: ubuntu-latest
