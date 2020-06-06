@@ -326,7 +326,7 @@ end
 
 if method =="boot" then
 	error("Method not implemented yet")
-elseif method =="rload" then
+elseif method == "rload" then
 	-- Must have "core"
 	-- Must have "rom"
 	if cores[core] == nil then
@@ -354,9 +354,9 @@ elseif method =="rload" then
 		print(rom, dir)
 		load_core(core_path)
 		sleep(load_time == nil and load_time or 4000)
-		press(KEY_ESC)
+		press(KEY_ESC) -- Some times the menu will popup others won't
 		press(KEY_F12)
-		for i, key in pairs(keys) do
+		for _, key in pairs(keys) do
 			press(key)
 		end
 		press(KEY_DOWN)
