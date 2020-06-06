@@ -300,7 +300,7 @@ func ScanPath(base string, file os.FileInfo, cores *Cores) {
 		fmt.Printf("RBF: %s\n", filepath)
 		c, err := scanRBF(filepath)
 		if err != nil {
-			// log.Println(filepath, err)
+			log.Println(filepath, err)
 		} else {
 			cores.RBFs = append(cores.RBFs, c)
 		}
@@ -308,7 +308,7 @@ func ScanPath(base string, file os.FileInfo, cores *Cores) {
 		fmt.Printf("MRA: %s\n", filepath)
 		c, err := scanMRA(filepath)
 		if err != nil {
-			// log.Println(filepath, err)
+			log.Println(filepath, err)
 		} else {
 			cores.MRAs = append(cores.MRAs, c)
 		}
