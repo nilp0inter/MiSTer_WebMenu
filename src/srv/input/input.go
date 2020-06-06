@@ -1,8 +1,6 @@
 package input
 
 import (
-	"fmt"
-
 	"github.com/bendahl/uinput"
 )
 
@@ -15,5 +13,4 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Keyboard initialized")
 }
