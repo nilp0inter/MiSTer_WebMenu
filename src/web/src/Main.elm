@@ -4,6 +4,7 @@ import Bootstrap.Alert as Alert
 import Bootstrap.Badge as Badge
 import Bootstrap.Breadcrumb as Breadcrumb
 import Bootstrap.Button as Button
+import Bootstrap.ButtonGroup as ButtonGroup
 import Bootstrap.CDN as CDN
 import Bootstrap.Card as Card
 import Bootstrap.Card.Block as Block
@@ -19,6 +20,8 @@ import Bootstrap.Pagination as Pagination
 import Bootstrap.Spinner as Spinner
 import Bootstrap.Text as Text
 import Bootstrap.Utilities.Spacing as Spacing
+import Bootstrap.ListGroup as ListGroup
+import Bootstrap.Utilities.Flex as Flex
 import Browser exposing (UrlRequest)
 import Browser.Navigation as Navigation
 import Debug
@@ -330,18 +333,19 @@ type alias GameInfo =
     { tree : TV.Model GameFolder String Never ()
     , loaded : Dict String Bool
     , list : Dict String (List Game)
-    , topFolder : Maybe GameTree
+    , topFolder : GameTree
     , folder : Maybe GameFolder
     , filter : Maybe String
+    , scanningOn : Maybe String
     , page : Int
     , missingThumbnails : Set.Set String
     }
 
 
 type GameState
-    = GamesNotFound
-    | ScanningGames
-    | GamesLoaded GameInfo
+    = GameFoldersNotFound
+    | ScanningGameFolders
+    | GameFoldersLoaded GameInfo
 
 
 type alias Model =
@@ -415,9 +419,9 @@ init flags url key =
                 , modalBody = ""
                 , modalAction = CloseModal
                 , cores = CoresNotFound
-                , games = GamesNotFound
+                , games = GameFoldersNotFound
                 , platforms = Nothing
-                , waiting = 2 -- Per loadCores ...
+                , waiting = 3 -- Per loadCores ...
                 , messages = []
                 , currentVersion = ""
                 , latestRelease = ""
@@ -450,10 +454,13 @@ type Msg
     | LoadGame String String String
     | GameLoaded (Result Http.Error ())
     | CoreSyncFinished (Result Http.Error ())
-    | GameFolderFinished (Result Http.Error ())
+    | GameFolderScanFinished (Result Http.Error ())
+    | GameScanFinished (Result Http.Error ())
     | LoadCores
     | ScanCores Bool
-    | ScanGames
+    | ScanGameFolders
+    | ScanGames String
+    | DeleteGameScan String
     | GotCores (Result Http.Error (List Core))
     | GotGameFolders (Result Http.Error GameTree)
     | FilterCores String
@@ -760,14 +767,17 @@ update msg model =
             , Cmd.none
             )
 
-        ScanGames ->
-            ( model, syncGameFolder )
+        ScanGameFolders ->
+            ( { model
+                | games = ScanningGameFolders
+                , waiting = model.waiting + 1 }
+            , syncGameFolder )
 
         GotGameScan path res ->
             case res of
                 Ok games ->
                     case model.games of
-                        GamesLoaded current ->
+                        GameFoldersLoaded current ->
                             let
                                 loaded =
                                     Dict.insert path True current.loaded
@@ -784,7 +794,7 @@ update msg model =
                                         current.list
                                         Dict.empty
                             in
-                            ( { model | games = GamesLoaded { current | loaded = loaded, list = list } }
+                            ( { model | games = GameFoldersLoaded { current | loaded = loaded, list = list } }
                             , Cmd.none
                             )
 
@@ -794,7 +804,7 @@ update msg model =
                 Err err ->
                     ( model, Cmd.none )
 
-        GameFolderFinished res ->
+        GameFolderScanFinished res ->
             case res of
                 Ok _ ->
                     ( model, loadGameFolders )
@@ -819,27 +829,30 @@ update msg model =
                     in
                     ( { model
                         | games =
-                            GamesLoaded
+                            GameFoldersLoaded
                                 { tree = tree
                                 , loaded = loaded
                                 , list = list
-                                , topFolder = Just value
+                                , topFolder = value
                                 , folder = Nothing
                                 , filter = Nothing
+                                , scanningOn = Nothing
                                 , page = 0
                                 , missingThumbnails = Set.empty
                                 }
+                        , waiting = model.waiting - 1
                       }
                     , Cmd.batch
                         (List.map loadGameScan (Dict.keys loaded))
                     )
 
                 Err value ->
-                    ( model, Cmd.none )
+                    ( { model | waiting = model.waiting - 1 }
+                    , Cmd.none )
 
         GameTreeViewMsg tvm ->
             case model.games of
-                GamesLoaded games ->
+                GameFoldersLoaded games ->
                     let
                         tree =
                             TV.update tvm games.tree
@@ -849,7 +862,7 @@ update msg model =
                     in
                     ( { model
                         | games =
-                            GamesLoaded
+                            GameFoldersLoaded
                                 { games
                                     | tree = tree
                                     , folder = folder
@@ -864,7 +877,7 @@ update msg model =
 
         FilterGames s ->
             case model.games of
-                GamesLoaded games ->
+                GameFoldersLoaded games ->
                     let
                         filter =
                             if s == "" then
@@ -875,7 +888,7 @@ update msg model =
                     in
                     ( { model
                         | games =
-                            GamesLoaded
+                            GameFoldersLoaded
                                 { games
                                     | filter = filter
                                     , page = 0
@@ -889,9 +902,9 @@ update msg model =
 
         GameMissingThumbnail s ->
             case model.games of
-                GamesLoaded games ->
+                GameFoldersLoaded games ->
                     ( { model
-                        | games = GamesLoaded { games | missingThumbnails = Set.insert s games.missingThumbnails }
+                        | games = GameFoldersLoaded { games | missingThumbnails = Set.insert s games.missingThumbnails }
                       }
                     , Cmd.none
                     )
@@ -901,14 +914,35 @@ update msg model =
 
         GamePaginationMsg i ->
             case model.games of
-                GamesLoaded games ->
+                GameFoldersLoaded games ->
                     ( { model
-                        | games = GamesLoaded { games | page = i }
+                        | games = GameFoldersLoaded { games | page = i }
                       }
                     , Cmd.none
                     )
 
                 _ ->
+                    ( model, Cmd.none )
+
+        ScanGames path ->
+            case model.games of
+                GameFoldersLoaded games ->
+                    ( { model | waiting = model.waiting + 1
+                              , games = GameFoldersLoaded { games | scanningOn = Just path } }
+                    , scanForGamesInFolder path )
+                _ -> 
+                    ( model, Cmd.none )
+
+        GameScanFinished res ->
+            ( model , loadGameFolders )
+
+        DeleteGameScan path ->
+            case model.games of
+                GameFoldersLoaded games ->
+                    ( { model | games = GameFoldersLoaded { games | scanningOn = Just "" }
+                              , waiting = model.waiting + 1 }
+                    , deleteGameScan path )
+                _ -> 
                     ( model, Cmd.none )
 
 
@@ -1131,9 +1165,29 @@ syncGameFolder =
     Http.get
         { url =
             relative [ "api", "folder", "scan" ] [ string "path" "/media" ]
-        , expect = Http.expectWhatever GameFolderFinished
+        , expect = Http.expectWhatever GameFolderScanFinished
         }
 
+scanForGamesInFolder : String -> Cmd Msg
+scanForGamesInFolder path =
+    Http.get
+        { url =
+            relative [ "api", "games", "scan" ] [ string "path" path ]
+        , expect = Http.expectWhatever GameScanFinished
+        }
+
+deleteGameScan : String -> Cmd Msg
+deleteGameScan path =
+    Http.request
+        { method = "DELETE"
+        , headers = []
+        , url =
+            relative [ "api", "games", "scan" ] [ string "path" path ]
+        , body = Http.emptyBody
+        , expect = Http.expectWhatever GameScanFinished
+        , timeout = Nothing
+        , tracker = Nothing
+        }
 
 loadCores : Cmd Msg
 loadCores =
@@ -1352,9 +1406,41 @@ scanGamesBlock model =
       |> Card.headerH3 [] [ text "Games" ]
       |> Card.block []
           [ Block.text []
-              [ p [] [ text "Click on 'Scan now' to start scanning for available games in your MiSTer." ]
-              ]
+              ([ p [] [ text "Click on 'Scan now' to start scanning for available game folders in your MiSTer." ]
+               ] ++ (
+                   case model.games of
+                        GameFoldersNotFound ->
+                            [ Button.button [ Button.primary
+                                            , Button.onClick ScanGameFolders
+                                            ]
+                                            [ text "Scan folders" ]
+                            ]
+
+                        ScanningGameFolders ->
+                            [ Button.button [ Button.primary
+                                            , Button.disabled True ]
+                                            [ text "Scan folders" ]
+                            ]
+
+                        GameFoldersLoaded games ->
+                            [ Button.button [ Button.secondary
+                                            , Button.onClick ScanGameFolders
+                                            ]
+                                            [ text "Scan folders" ]
+                            ]
+                 )
+             )
           ]
+      |> Card.block [] (
+          case model.games of
+              GameFoldersLoaded games ->
+                  [ Block.text []
+                      [ h3 [] [ text "Game Folders" ]
+                      , ListGroup.ul (folderSelector games.scanningOn games.topFolder)
+                      ]
+                  ]
+              _ -> []
+         )
       |> Card.view
 
     
@@ -1933,7 +2019,7 @@ coreCard model core =
         thumbnail =
             if imgSrc == "" then
                 Card.block [ Block.attrs [ class "text-muted", class "d-flex", class "justify-content-center", class "align-items-center", class "corenoimg" ] ]
-                    [ Block.text [] [ text "No image available" ] ]
+                    [ Block.text [] [ text (cFilename core) ] ]
 
             else
                 Card.imgTop [ src imgSrc, on "error" (Decode.succeed (MissingThumbnail imgSrc)) ] []
@@ -2004,13 +2090,13 @@ pageGamesPage model =
 pageGamesPageContent : Model -> Html Msg
 pageGamesPageContent model =
     case model.games of
-        GamesNotFound ->
+        GameFoldersNotFound ->
             gameSyncButton
 
-        ScanningGames ->
+        ScanningGameFolders ->
             waitForSync
 
-        GamesLoaded games ->
+        GameFoldersLoaded games ->
             pageGamesLoadedContent games
 
 
@@ -2291,8 +2377,65 @@ gameSyncButton =
             , Block.custom <|
                 Button.button
                     [ Button.primary
-                    , Button.onClick ScanGames
+                    , Button.onClick ScanGameFolders
                     ]
                     [ text "Scan now" ]
             ]
         |> Card.view
+
+
+isJust : Maybe a -> Bool
+isJust x =
+    case x of
+        Nothing -> False
+        Just _ -> True
+
+addFolderSelector : Maybe String -> String -> GameTree -> List (ListGroup.Item Msg) -> List (ListGroup.Item Msg)
+addFolderSelector scanningOn _ gt xs =
+    (folderSelector scanningOn gt) ++ xs 
+
+folderSelector : Maybe String -> GameTree -> List (ListGroup.Item Msg)
+folderSelector scanningOn gt =
+    (if (String.length gt.path >= String.length "/media/fat")
+     then [ gameFolderElement scanningOn gt.path gt.scanned ]
+     else []) ++ (
+    case gt.scanned of
+        ScanFound -> []
+        _ -> (
+            case gt.contents of 
+                Contents c ->
+                    Dict.foldr (addFolderSelector scanningOn) [] c)
+    )
+
+scanningSpinner : String -> Maybe String -> String -> String -> List (Html Msg)
+scanningSpinner path scanningOn textNoScanning textScanning =
+    case scanningOn of
+        Nothing -> [ text textNoScanning ]
+        Just p -> if p == path
+                  then [ Spinner.spinner [ Spinner.small, Spinner.attrs [ Spacing.mr1 ] ] []
+                       , text textScanning ]
+                  else [ text textNoScanning ]
+
+gameFolderElement : Maybe String -> String -> ScanStatus -> ListGroup.Item Msg
+gameFolderElement scanningOn name scanned =
+    ListGroup.li [ ListGroup.attrs [ Flex.block, Flex.justifyBetween, Flex.alignItemsCenter ] ] ([ text name ] ++ (
+        [ ButtonGroup.buttonGroup
+            [ ButtonGroup.small ] (
+                case scanned of
+                    ScanFound ->
+                            [ ButtonGroup.button [ Button.disabled (isJust scanningOn)
+                                                 , Button.primary
+                                                 , Button.onClick (ScanGames name) ]
+                                                 (scanningSpinner name scanningOn "Rescan" "Rescanning...")
+                            , ButtonGroup.button [ Button.disabled (isJust scanningOn)
+                                                 , Button.primary
+                                                 , Button.onClick (DeleteGameScan name) ] [ text "Discard" ]
+                            ]
+                    _ ->
+                        [ ButtonGroup.button [ Button.disabled (isJust scanningOn)
+                                             , Button.primary
+                                             , Button.onClick (ScanGames name) ]
+                                             (scanningSpinner name scanningOn "Scan" "Scanning...")
+                        ]
+            )
+        ]))

@@ -249,7 +249,8 @@ func main() {
 	r.HandleFunc("/api/version/current", GetCurrentVersion)
 	r.HandleFunc("/api/folder/scan", ScanForFolders)
 	r.HandleFunc("/api/cores/scan", ScanForCores)
-	r.HandleFunc("/api/games/scan", ScanForGames)
+	r.HandleFunc("/api/games/scan", ScanForGames).Methods("GET")
+	r.HandleFunc("/api/games/scan", DeleteGameScan).Methods("DELETE")
 	r.HandleFunc("/api/games/db/update", UpdateGameDB).Methods("POST")
 	r.PathPrefix("/cached/").Handler(http.StripPrefix("/cached/", http.FileServer(http.Dir(system.CachePath))))
 	r.PathPrefix("/").Handler(http.FileServer(statikFS))
@@ -599,6 +600,31 @@ func SendInput(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func DeleteGameScan(w http.ResponseWriter, r *http.Request) {
+	scanMutex.Lock()
+	defer scanMutex.Unlock()
+	scanPathParam, ok := r.URL.Query()["path"]
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	scanPath := path.Clean(scanPathParam[0])
+	outputDir := pathlib.Join(system.GamesDBPath, pathlib.Dir(scanPath))
+
+	err := os.Remove(pathlib.Join(outputDir, pathlib.Base(scanPath)+".jsonl"))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	err = ScanFoldersAndSave("/media", true)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+	}
+}
+
 func ScanForGames(w http.ResponseWriter, r *http.Request) {
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
@@ -638,6 +664,11 @@ func ScanForGames(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	err = ScanFoldersAndSave("/media", true)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+	}
 }
 
 func IsKnownExt(ext string) bool {
@@ -996,6 +1027,26 @@ func ScanFolders(basePath string, recursive bool) (*Path, error) {
 	return p, err
 }
 
+func ScanFoldersAndSave(basePath string, recursive bool) error {
+	p, err := ScanFolders(basePath, recursive)
+
+	if err != nil {
+		return err
+	}
+
+	b, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(system.FoldersDBPath, b, 0644)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func ScanForFolders(w http.ResponseWriter, r *http.Request) {
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
@@ -1005,23 +1056,11 @@ func ScanForFolders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := ScanFolders(scanPathParam[0], true)
+	err := ScanFoldersAndSave(scanPathParam[0], true)
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
-		return
-	}
-
-	b, err := json.Marshal(p)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
-	}
-	err = ioutil.WriteFile(system.FoldersDBPath, b, 0644)
-	if err != nil {
-		log.Fatal(err)
 	}
 }
 
