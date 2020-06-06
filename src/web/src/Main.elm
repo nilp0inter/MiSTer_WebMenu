@@ -361,6 +361,7 @@ type alias Model =
     , messages : List Panel
     , cores : CoreState
     , games : GameState
+    , gameLoaderScript : Maybe String
     , platforms : Maybe (List Platform)
     , waiting : Int
     , currentVersion : String
@@ -421,6 +422,7 @@ init flags url key =
                 , modalAction = CloseModal
                 , cores = CoresNotFound
                 , games = GameFoldersNotFound
+                , gameLoaderScript = Nothing
                 , platforms = Nothing
                 , waiting = 3 -- Per loadCores ...
                 , messages = []
@@ -441,6 +443,7 @@ init flags url key =
         , navCmd
         , loadCores
         , loadGameFolders
+        , loadGameLoaderScript
         , checkCurrentVersion
         ]
     )
@@ -452,7 +455,7 @@ type Msg
     | NavMsg Navbar.State
     | CloseModal
     | ShowModal String String Msg
-    | LoadGame String String String
+    | LoadCore String
     | GameLoaded (Result Http.Error ())
     | CoreSyncFinished (Result Http.Error ())
     | GameFolderScanFinished (Result Http.Error ())
@@ -464,6 +467,7 @@ type Msg
     | DeleteGameScan String
     | GotCores (Result Http.Error (List Core))
     | GotGameFolders (Result Http.Error GameTree)
+    | GotGameLoaderScript (Result Http.Error String)
     | FilterCores String
     | GotGameScan String (Result Http.Error (List Game))
     | ClosePanel Int Alert.Visibility
@@ -527,8 +531,8 @@ update msg model =
             , Cmd.none
             )
 
-        LoadGame core game lpath ->
-            ( { model | modalVisibility = Modal.hidden }, loadGame core game lpath )
+        LoadCore path ->
+            ( { model | modalVisibility = Modal.hidden }, loadCore path )
 
         GameLoaded _ ->
             ( model, Cmd.none )
@@ -966,6 +970,20 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        GotGameLoaderScript res ->
+            case res of
+                Ok script ->
+                    ( { model | gameLoaderScript = Just script }
+                    , Cmd.none
+                    )
+
+                Err e ->
+                    ( { model
+                        | messages = newPanel Error "Couldn't get loader script" ("Content launching will be disabled.\n" ++ errorToString e) :: model.messages
+                      }
+                    , loadGameFolders
+                    )
+
 
 initLoadedGameFolders : GameTree -> List ( String, Bool )
 initLoadedGameFolders tree =
@@ -1227,6 +1245,14 @@ loadCores =
         }
 
 
+loadGameLoaderScript : Cmd Msg
+loadGameLoaderScript =
+    Http.get
+        { url = relative [ "assets", "scripts", "load.lua" ] []
+        , expect = Http.expectString GotGameLoaderScript
+        }
+
+
 loadGameFolders : Cmd Msg
 loadGameFolders =
     Http.get
@@ -1275,8 +1301,8 @@ loadGameScan scan =
         }
 
 
-loadGame : String -> String -> String -> Cmd Msg
-loadGame core game lpath =
+loadCore : String -> Cmd Msg
+loadCore lpath =
     Http.get
         { url = relative [ "api", "run" ] [ string "path" lpath ]
         , expect = Http.expectWhatever GameLoaded
@@ -2083,7 +2109,7 @@ coreCard model core =
             cPath core
 
         loadEv =
-            ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadGame corePath game path)
+            ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadCore path)
 
         selected =
             if model.selectedCore == Just core then
@@ -2364,6 +2390,9 @@ gameCard model game =
                     UnrecognizedGame _ ->
                         ""
 
+        loadEv =
+            ShowModal "Are you sure?" ("You are about to launch " ++ titleText ++ ". Any running game will be stopped immediately!") (LoadCore "")
+
         body =
             Block.text []
                 (case gameSystem game of
@@ -2425,6 +2454,7 @@ gameCard model game =
             , class "text-center"
             , class "text-white"
             , class "runbutton"
+            , on "click" (Decode.succeed loadEv)
             ]
             [ text "Run" ]
 
