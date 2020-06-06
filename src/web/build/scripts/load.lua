@@ -354,7 +354,7 @@ elseif method == "rload" then
 		print(rom, dir)
 		load_core(core_path)
 		sleep(load_time == nil and load_time or 4000)
-		press(KEY_ESC) -- Some times the menu will popup others won't
+		press(KEY_ESC) -- Sometimes the menu will popup others won't
 		press(KEY_F12)
 		for _, key in pairs(keys) do
 			press(key)
