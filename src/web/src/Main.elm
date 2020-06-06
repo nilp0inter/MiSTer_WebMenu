@@ -14,14 +14,14 @@ import Bootstrap.Form.InputGroup as InputGroup
 import Bootstrap.General.HAlign as HAlign
 import Bootstrap.Grid as Grid
 import Bootstrap.Grid.Col as Col
+import Bootstrap.ListGroup as ListGroup
 import Bootstrap.Modal as Modal
 import Bootstrap.Navbar as Navbar
 import Bootstrap.Pagination as Pagination
 import Bootstrap.Spinner as Spinner
 import Bootstrap.Text as Text
-import Bootstrap.Utilities.Spacing as Spacing
-import Bootstrap.ListGroup as ListGroup
 import Bootstrap.Utilities.Flex as Flex
+import Bootstrap.Utilities.Spacing as Spacing
 import Browser exposing (UrlRequest)
 import Browser.Navigation as Navigation
 import Debug
@@ -33,8 +33,8 @@ import FontAwesome.Styles as Icon
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (on, onClick, onInput)
-import Http
 import Html.Keyed as Keyed
+import Http
 import Json.Decode as Decode exposing (Decoder)
 import List.Extra exposing (getAt, greedyGroupsOf, last, stripPrefix)
 import Process
@@ -294,6 +294,7 @@ type CoreState
 
 type Contents
     = Contents (Dict String GameTree)
+
 
 type ScanStatus
     = ScanFound
@@ -770,8 +771,10 @@ update msg model =
         ScanGameFolders ->
             ( { model
                 | games = ScanningGameFolders
-                , waiting = model.waiting + 1 }
-            , syncGameFolder )
+                , waiting = model.waiting + 1
+              }
+            , syncGameFolder
+            )
 
         GotGameScan path res ->
             case res of
@@ -848,7 +851,8 @@ update msg model =
 
                 Err value ->
                     ( { model | waiting = model.waiting - 1 }
-                    , Cmd.none )
+                    , Cmd.none
+                    )
 
         GameTreeViewMsg tvm ->
             case model.games of
@@ -927,22 +931,39 @@ update msg model =
         ScanGames path ->
             case model.games of
                 GameFoldersLoaded games ->
-                    ( { model | waiting = model.waiting + 1
-                              , games = GameFoldersLoaded { games | scanningOn = Just path } }
-                    , scanForGamesInFolder path )
-                _ -> 
+                    ( { model
+                        | waiting = model.waiting + 1
+                        , games = GameFoldersLoaded { games | scanningOn = Just path }
+                      }
+                    , scanForGamesInFolder path
+                    )
+
+                _ ->
                     ( model, Cmd.none )
 
         GameScanFinished res ->
-            ( model , loadGameFolders )
+            case res of
+                Ok _ ->
+                    ( model, loadGameFolders )
+
+                Err e ->
+                    ( { model
+                        | messages = newPanel Error "Error scanning games" (errorToString e) :: model.messages
+                      }
+                    , loadGameFolders
+                    )
 
         DeleteGameScan path ->
             case model.games of
                 GameFoldersLoaded games ->
-                    ( { model | games = GameFoldersLoaded { games | scanningOn = Just "" }
-                              , waiting = model.waiting + 1 }
-                    , deleteGameScan path )
-                _ -> 
+                    ( { model
+                        | games = GameFoldersLoaded { games | scanningOn = Just "" }
+                        , waiting = model.waiting + 1
+                      }
+                    , deleteGameScan path
+                    )
+
+                _ ->
                     ( model, Cmd.none )
 
 
@@ -1142,15 +1163,21 @@ syncCores force =
         , expect = Http.expectWhatever CoreSyncFinished
         }
 
+
 boolToScanStatus : Bool -> ScanStatus
 boolToScanStatus x =
     case x of
-        True -> ScanFound
-        False -> ScanMissing
+        True ->
+            ScanFound
+
+        False ->
+            ScanMissing
+
 
 scanStatusDecoder : Decode.Decoder ScanStatus
 scanStatusDecoder =
     Decode.map boolToScanStatus Decode.bool
+
 
 gameTreeDecoder : Decode.Decoder GameTree
 gameTreeDecoder =
@@ -1168,6 +1195,7 @@ syncGameFolder =
         , expect = Http.expectWhatever GameFolderScanFinished
         }
 
+
 scanForGamesInFolder : String -> Cmd Msg
 scanForGamesInFolder path =
     Http.get
@@ -1175,6 +1203,7 @@ scanForGamesInFolder path =
             relative [ "api", "games", "scan" ] [ string "path" path ]
         , expect = Http.expectWhatever GameScanFinished
         }
+
 
 deleteGameScan : String -> Cmd Msg
 deleteGameScan path =
@@ -1189,6 +1218,7 @@ deleteGameScan path =
         , tracker = Nothing
         }
 
+
 loadCores : Cmd Msg
 loadCores =
     Http.get
@@ -1196,12 +1226,14 @@ loadCores =
         , expect = Http.expectJson GotCores coreDecoder
         }
 
+
 loadGameFolders : Cmd Msg
 loadGameFolders =
     Http.get
         { url = relative [ "cached", "folders.json" ] []
         , expect = Http.expectJson GotGameFolders gameTreeDecoder
         }
+
 
 decodeJsonLines : Decoder a -> String -> Result Decode.Error (List a)
 decodeJsonLines decoder lines =
@@ -1272,7 +1304,7 @@ routeParser =
     UrlParser.oneOf
         [ UrlParser.map AboutPage top
         , UrlParser.map CoresPage (UrlParser.s "cores")
-        , UrlParser.map GamesPage (UrlParser.s "games")
+        , UrlParser.map GamesPage (UrlParser.s "content")
         , UrlParser.map (NotImplementedPage "Community" "View MiSTer news, and receive community updates and relevant content") (UrlParser.s "community")
         , UrlParser.map SettingsPage (UrlParser.s "settings")
         , UrlParser.map AboutPage (UrlParser.s "about")
@@ -1331,7 +1363,7 @@ menu model =
             |> Navbar.brand [ class "text-white" ] [ strong [] [ text "MiSTer" ] ]
             |> Navbar.items
                 [ Navbar.itemLink [ href "#cores" ] [ text "Cores" ]
-                , Navbar.itemLink [ href "#games" ] [ text "Games" ]
+                , Navbar.itemLink [ href "#content" ] [ text "Content" ]
                 , Navbar.itemLink [ href "#community" ] [ text "Community" ]
                 , Navbar.itemLink [ href "#settings" ] [ text "Settings" ]
                 , Navbar.itemLink [ href "#about" ] [ text "About" ]
@@ -1399,111 +1431,121 @@ pageSettingsPage model =
     , checkForUpdatesBlock model
     ]
 
+
 scanGamesBlock model =
-    Card.config [ Card.outlineDark
-                , Card.attrs [ Spacing.mb3 ]
-                ]
-      |> Card.headerH3 [] [ text "Games" ]
-      |> Card.block []
-          [ Block.text []
-              ([ p [] [ text "Click on 'Scan now' to start scanning for available game folders in your MiSTer." ]
-               ] ++ (
-                   case model.games of
-                        GameFoldersNotFound ->
-                            [ Button.button [ Button.primary
-                                            , Button.onClick ScanGameFolders
-                                            ]
-                                            [ text "Scan folders" ]
-                            ]
+    Card.config
+        [ Card.outlineDark
+        , Card.attrs [ Spacing.mb3 ]
+        ]
+        |> Card.headerH3 [] [ text "Games" ]
+        |> Card.block []
+            [ Block.text []
+                ([ p [] [ text "Click on 'Scan now' to start scanning for available game folders in your MiSTer." ]
+                 ]
+                    ++ (case model.games of
+                            GameFoldersNotFound ->
+                                [ Button.button
+                                    [ Button.primary
+                                    , Button.onClick ScanGameFolders
+                                    ]
+                                    [ text "Scan folders" ]
+                                ]
 
-                        ScanningGameFolders ->
-                            [ Button.button [ Button.primary
-                                            , Button.disabled True ]
-                                            [ text "Scan folders" ]
-                            ]
+                            ScanningGameFolders ->
+                                [ Button.button
+                                    [ Button.primary
+                                    , Button.disabled True
+                                    ]
+                                    [ text "Scan folders" ]
+                                ]
 
-                        GameFoldersLoaded games ->
-                            [ Button.button [ Button.secondary
-                                            , Button.onClick ScanGameFolders
-                                            ]
-                                            [ text "Scan folders" ]
-                            ]
-                 )
-             )
-          ]
-      |> Card.block [] (
-          case model.games of
-              GameFoldersLoaded games ->
-                  [ Block.text []
-                      [ h3 [] [ text "Game Folders" ]
-                      , ListGroup.ul (folderSelector games.scanningOn games.topFolder)
-                      ]
-                  ]
-              _ -> []
-         )
-      |> Card.view
+                            GameFoldersLoaded games ->
+                                [ Button.button
+                                    [ Button.secondary
+                                    , Button.onClick ScanGameFolders
+                                    ]
+                                    [ text "Scan folders" ]
+                                ]
+                       )
+                )
+            ]
+        |> Card.block []
+            (case model.games of
+                GameFoldersLoaded games ->
+                    [ Block.text []
+                        [ h3 [] [ text "Game Folders" ]
+                        , ListGroup.ul (folderSelector games.scanningOn games.topFolder)
+                        ]
+                    ]
 
-    
+                _ ->
+                    []
+            )
+        |> Card.view
+
 
 scanCoresBlock model =
-    Card.config [ Card.outlineDark
-                , Card.attrs [ Spacing.mb3 ]
-                ]
+    Card.config
+        [ Card.outlineDark
+        , Card.attrs [ Spacing.mb3 ]
+        ]
         |> Card.headerH3 [] [ text "Cores" ]
         |> Card.block []
-               [ Block.text [] [ p [] [ text "Click on 'Scan now' to start scanning for available cores in your MiSTer." ]
-                               , p [] [ text "This may take a couple of minutes depending on the number of files in your SD card." ]
-                               ]
-               , Block.custom <|
-                   Button.button
-                       [ Button.disabled (model.cores == ScanningCores)
-                       , Button.primary
-                       , Button.onClick (ScanCores True)
-                       ]
-                       [ text "Scan now" ]
-               ]
+            [ Block.text []
+                [ p [] [ text "Click on 'Scan now' to start scanning for available cores in your MiSTer." ]
+                , p [] [ text "This may take a couple of minutes depending on the number of files in your SD card." ]
+                ]
+            , Block.custom <|
+                Button.button
+                    [ Button.disabled (model.cores == ScanningCores)
+                    , Button.primary
+                    , Button.onClick (ScanCores True)
+                    ]
+                    [ text "Scan now" ]
+            ]
         |> Card.view
 
 
 checkForUpdatesBlock model =
-    Card.config [ Card.outlineDark
-                , Card.attrs [ Spacing.mb3 ]
+    Card.config
+        [ Card.outlineDark
+        , Card.attrs [ Spacing.mb3 ]
+        ]
+        |> Card.headerH3 [] [ text "WebMenu Update" ]
+        |> Card.block []
+            [ Block.text []
+                [ p [] [ text "Check for new releases of WebMenu." ]
+                , p []
+                    [ text "You are currently running "
+                    , strong [] [ text model.currentVersion ]
+                    ]
                 ]
-      |> Card.headerH3 [] [ text "WebMenu Update" ]
-      |> Card.block []
-          [ Block.text []
-              [ p [] [ text "Check for new releases of WebMenu." ]
-              , p []
-                  [ text "You are currently running "
-                  , strong [] [ text model.currentVersion ]
-                  ]
-              ]
-          , Block.custom <|
-              Button.button
-                  [ Button.disabled (model.updateStatus == ReadyToCheck)
-                  , Button.info
-                  , Button.onClick CheckLatestRelease
-                  ]
-                  [ text "Check for updates" ]
-          ]
-      |> Card.block []
-          (case model.updateStatus of
-              UpdateAvailable ->
-                  updateAvailableBlock model
+            , Block.custom <|
+                Button.button
+                    [ Button.disabled (model.updateStatus == ReadyToCheck)
+                    , Button.info
+                    , Button.onClick CheckLatestRelease
+                    ]
+                    [ text "Check for updates" ]
+            ]
+        |> Card.block []
+            (case model.updateStatus of
+                UpdateAvailable ->
+                    updateAvailableBlock model
 
-              OnLatestRelease ->
-                  onLatestReleaseBlock model
+                OnLatestRelease ->
+                    onLatestReleaseBlock model
 
-              Updating ->
-                  updateAvailableBlock model
+                Updating ->
+                    updateAvailableBlock model
 
-              WaitingForReboot ->
-                  updateAvailableBlock model
+                WaitingForReboot ->
+                    updateAvailableBlock model
 
-              _ ->
-                  []
-          )
-      |> Card.view
+                _ ->
+                    []
+            )
+        |> Card.view
 
 
 onLatestReleaseBlock model =
@@ -1865,16 +1907,22 @@ mergeAdding l r =
 
 coreSearch : Model -> Html Msg
 coreSearch model =
-    Keyed.node "div" [] [ ("core-search", (
-    Form.form [ class "mb-4" ]
-        [ InputGroup.config
-            (InputGroup.search [ Input.attrs [ onInput FilterCores ]
-                               , Input.value (Maybe.withDefault "" model.coreFilter) ])
-            |> InputGroup.predecessors
-                [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
-            |> InputGroup.view
+    Keyed.node "div"
+        []
+        [ ( "core-search"
+          , Form.form [ class "mb-4" ]
+                [ InputGroup.config
+                    (InputGroup.search
+                        [ Input.attrs [ onInput FilterCores ]
+                        , Input.value (Maybe.withDefault "" model.coreFilter)
+                        ]
+                    )
+                    |> InputGroup.predecessors
+                        [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
+                    |> InputGroup.view
+                ]
+          )
         ]
-    )) ]
 
 
 matchCoreByString : String -> Core -> Bool
@@ -1907,13 +1955,14 @@ coreFolderContent m ( path, cs ) =
     [ brFromPath path ] ++ coreContent m cs
 
 
-coreKeyAndCard : Model -> Core -> (String, Card.Config Msg)
-coreKeyAndCard m c = ((cPath c) ++ "/" ++ (cFilename c), coreCard m c)
+coreKeyAndCard : Model -> Core -> ( String, Card.Config Msg )
+coreKeyAndCard m c =
+    ( cPath c ++ "/" ++ cFilename c, coreCard m c )
 
 
 coreContent : Model -> List Core -> List (Html Msg)
 coreContent m cs =
-    List.map Card.keyedDeck (partition 3 ("", emptyCard) (List.map (coreKeyAndCard m) cs))
+    List.map Card.keyedDeck (partition 3 ( "", emptyCard ) (List.map (coreKeyAndCard m) cs))
 
 
 emptyCard =
@@ -2091,7 +2140,7 @@ pageGamesPageContent : Model -> Html Msg
 pageGamesPageContent model =
     case model.games of
         GameFoldersNotFound ->
-            gameSyncButton
+            noGamesPage
 
         ScanningGameFolders ->
             waitForSync
@@ -2102,16 +2151,22 @@ pageGamesPageContent model =
 
 gameSearch : Maybe String -> Html Msg
 gameSearch f =
-    Keyed.node "div" [] [ ("game-search", (
-        Form.form [ class "mb-4" ]
-            [ InputGroup.config
-                (InputGroup.search [ Input.attrs [ onInput FilterGames ]
-                                   , Input.value (Maybe.withDefault "" f) ])
-                |> InputGroup.predecessors
-                    [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
-                |> InputGroup.view
-            ]
-    )) ]
+    Keyed.node "div"
+        []
+        [ ( "game-search"
+          , Form.form [ class "mb-4" ]
+                [ InputGroup.config
+                    (InputGroup.search
+                        [ Input.attrs [ onInput FilterGames ]
+                        , Input.value (Maybe.withDefault "" f)
+                        ]
+                    )
+                    |> InputGroup.predecessors
+                        [ InputGroup.span [] [ span [] [ Icon.viewIcon Icon.search ] ] ]
+                    |> InputGroup.view
+                ]
+          )
+        ]
 
 
 filterGame : String -> Game -> Bool
@@ -2162,7 +2217,7 @@ pageGamesLoadedContent games =
 
         paginationBlock =
             if activePagination then
-                [ simplePaginationList "#games" pages games.page GamePaginationMsg ]
+                [ simplePaginationList "#content" pages games.page GamePaginationMsg ]
 
             else
                 []
@@ -2206,12 +2261,14 @@ gameFolderContent m ( path, cs ) =
     [ gameBrFromPath path ] ++ gameContent m cs
 
 
-gameKeyAndCard : GameInfo -> Game -> (String, Card.Config Msg)
-gameKeyAndCard m g = ((gamePath g) ++ "/" ++ (gameFilename g), gameCard m g)
+gameKeyAndCard : GameInfo -> Game -> ( String, Card.Config Msg )
+gameKeyAndCard m g =
+    ( gamePath g ++ "/" ++ gameFilename g, gameCard m g )
+
 
 gameContent : GameInfo -> List Game -> List (Html Msg)
 gameContent m cs =
-    List.map Card.keyedDeck (partition 3 ("", emptyCard) (List.map (gameKeyAndCard m) cs))
+    List.map Card.keyedDeck (partition 3 ( "", emptyCard ) (List.map (gameKeyAndCard m) cs))
 
 
 getFilename : String -> Maybe String
@@ -2326,17 +2383,24 @@ gameCard model game =
 
         thumbnail =
             if imgSrc == "" then
-                Card.block [ Block.attrs [ class "text-muted"
-                                         , class "d-flex"
-                                         , class "justify-content-center"
-                                         , class "align-items-center"
-                                         , class "corenoimg" ] ]
+                Card.block
+                    [ Block.attrs
+                        [ class "text-muted"
+                        , class "d-flex"
+                        , class "justify-content-center"
+                        , class "align-items-center"
+                        , class "corenoimg"
+                        ]
+                    ]
                     [ Block.text [] [ text titleText ] ]
 
             else
-                Card.imgTop [ src imgSrc
-                            , title titleText
-                            , on "error" (Decode.succeed (GameMissingThumbnail imgSrc)) ] []
+                Card.imgTop
+                    [ src imgSrc
+                    , title titleText
+                    , on "error" (Decode.succeed (GameMissingThumbnail imgSrc))
+                    ]
+                    []
 
         path =
             gamePath game
@@ -2365,21 +2429,13 @@ gameCard model game =
             [ text "Run" ]
 
 
-gameSyncButton : Html Msg
-gameSyncButton =
+noGamesPage : Html Msg
+noGamesPage =
     Card.config []
         |> Card.block []
-            [ Block.titleH4 [] [ text "No games yet" ]
+            [ Block.titleH4 [] [ text "No content yet" ]
             , Block.text []
-                [ p [] [ text "Click on 'Scan now' to start scanning for available games in your MiSTer." ]
-                , p [] [ text "This may take a couple of minutes depending on the number of files in your SD card." ]
-                ]
-            , Block.custom <|
-                Button.button
-                    [ Button.primary
-                    , Button.onClick ScanGameFolders
-                    ]
-                    [ text "Scan now" ]
+                [ p [] [ text "Go to Settings to configure your content." ] ]
             ]
         |> Card.view
 
@@ -2387,55 +2443,83 @@ gameSyncButton =
 isJust : Maybe a -> Bool
 isJust x =
     case x of
-        Nothing -> False
-        Just _ -> True
+        Nothing ->
+            False
+
+        Just _ ->
+            True
+
 
 addFolderSelector : Maybe String -> String -> GameTree -> List (ListGroup.Item Msg) -> List (ListGroup.Item Msg)
 addFolderSelector scanningOn _ gt xs =
-    (folderSelector scanningOn gt) ++ xs 
+    folderSelector scanningOn gt ++ xs
+
 
 folderSelector : Maybe String -> GameTree -> List (ListGroup.Item Msg)
 folderSelector scanningOn gt =
-    (if (String.length gt.path >= String.length "/media/fat")
-     then [ gameFolderElement scanningOn gt.path gt.scanned ]
-     else []) ++ (
-    case gt.scanned of
-        ScanFound -> []
-        _ -> (
-            case gt.contents of 
-                Contents c ->
-                    Dict.foldr (addFolderSelector scanningOn) [] c)
+    (if String.length gt.path >= String.length "/media/fat" then
+        [ gameFolderElement scanningOn gt.path gt.scanned ]
+
+     else
+        []
     )
+        ++ (case gt.scanned of
+                ScanFound ->
+                    []
+
+                _ ->
+                    case gt.contents of
+                        Contents c ->
+                            Dict.foldr (addFolderSelector scanningOn) [] c
+           )
+
 
 scanningSpinner : String -> Maybe String -> String -> String -> List (Html Msg)
 scanningSpinner path scanningOn textNoScanning textScanning =
     case scanningOn of
-        Nothing -> [ text textNoScanning ]
-        Just p -> if p == path
-                  then [ Spinner.spinner [ Spinner.small, Spinner.attrs [ Spacing.mr1 ] ] []
-                       , text textScanning ]
-                  else [ text textNoScanning ]
+        Nothing ->
+            [ text textNoScanning ]
+
+        Just p ->
+            if p == path then
+                [ Spinner.spinner [ Spinner.small, Spinner.attrs [ Spacing.mr1 ] ] []
+                , text textScanning
+                ]
+
+            else
+                [ text textNoScanning ]
+
 
 gameFolderElement : Maybe String -> String -> ScanStatus -> ListGroup.Item Msg
 gameFolderElement scanningOn name scanned =
-    ListGroup.li [ ListGroup.attrs [ Flex.block, Flex.justifyBetween, Flex.alignItemsCenter ] ] ([ text name ] ++ (
-        [ ButtonGroup.buttonGroup
-            [ ButtonGroup.small ] (
-                case scanned of
-                    ScanFound ->
-                            [ ButtonGroup.button [ Button.disabled (isJust scanningOn)
-                                                 , Button.primary
-                                                 , Button.onClick (ScanGames name) ]
-                                                 (scanningSpinner name scanningOn "Rescan" "Rescanning...")
-                            , ButtonGroup.button [ Button.disabled (isJust scanningOn)
-                                                 , Button.primary
-                                                 , Button.onClick (DeleteGameScan name) ] [ text "Discard" ]
+    ListGroup.li [ ListGroup.attrs [ Flex.block, Flex.justifyBetween, Flex.alignItemsCenter ] ]
+        ([ text name ]
+            ++ [ ButtonGroup.buttonGroup
+                    [ ButtonGroup.small ]
+                    (case scanned of
+                        ScanFound ->
+                            [ ButtonGroup.button
+                                [ Button.disabled (isJust scanningOn)
+                                , Button.primary
+                                , Button.onClick (ScanGames name)
+                                ]
+                                (scanningSpinner name scanningOn "Rescan" "Rescanning...")
+                            , ButtonGroup.button
+                                [ Button.disabled (isJust scanningOn)
+                                , Button.primary
+                                , Button.onClick (DeleteGameScan name)
+                                ]
+                                [ text "Discard" ]
                             ]
-                    _ ->
-                        [ ButtonGroup.button [ Button.disabled (isJust scanningOn)
-                                             , Button.primary
-                                             , Button.onClick (ScanGames name) ]
-                                             (scanningSpinner name scanningOn "Scan" "Scanning...")
-                        ]
-            )
-        ]))
+
+                        _ ->
+                            [ ButtonGroup.button
+                                [ Button.disabled (isJust scanningOn)
+                                , Button.primary
+                                , Button.onClick (ScanGames name)
+                                ]
+                                (scanningSpinner name scanningOn "Scan" "Scanning...")
+                            ]
+                    )
+               ]
+        )

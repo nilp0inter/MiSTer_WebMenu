@@ -639,6 +639,18 @@ func DeleteGameScan(w http.ResponseWriter, r *http.Request) {
 func ScanForGames(w http.ResponseWriter, r *http.Request) {
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
+
+	// Check for databank and download if not present
+	_, err := os.Stat(pathlib.Join(system.CachePath, "databank.db"))
+	if os.IsNotExist(err) {
+		err = update.UpdateGameDB()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+	}
+
 	games := make(chan [5]string)
 	scanPathParam, ok := r.URL.Query()["path"]
 	if !ok {
@@ -891,7 +903,7 @@ func ScanGames(basePath string, games chan<- [5]string) error {
 
 	db, err := bolt.Open(pathlib.Join(system.CachePath, "databank.db"), 0600, &bolt.Options{ReadOnly: true})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer db.Close()
 
