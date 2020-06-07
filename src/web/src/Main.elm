@@ -339,6 +339,14 @@ type alias GameTree =
     , contents : Contents
     }
 
+type ZipperParent
+    = ZipperParent (GameTreeZipper)
+
+type alias GameTreeZipper = 
+    { name : String
+    , parent : Maybe ZipperParent 
+    , current : GameTree
+    }
 
 type alias GameFolder =
     { label : String
@@ -391,6 +399,7 @@ type alias Model =
     , messages : List Panel
     , cores : CoreState
     , games : GameState
+    , folderSettingsNav : Maybe GameTreeZipper
     , openContentWithDialog : ContentLoadInfo
     , gameLoaderScript : Maybe String
     , platforms : Maybe (List Platform)
@@ -473,6 +482,7 @@ init flags url key =
                 , modalFooter = [ Button.button [ Button.warning, Button.onClick CloseModal ] [ text "Proceed" ] ]
                 , cores = CoresNotFound
                 , games = GameFoldersNotFound
+                , folderSettingsNav = Nothing
                 , openContentWithDialog = emptyContentLoadInfo
                 , gameLoaderScript = Nothing
                 , platforms = Nothing
@@ -541,7 +551,11 @@ type Msg
     | FilterGames String
     | GamePaginationMsg Int
     | GameMissingThumbnail String
+    | SettingFolderNav FolderNavMsg
 
+type FolderNavMsg
+        = NavUp GameTreeZipper
+        | NavDown (String, GameTree)
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
@@ -901,6 +915,9 @@ update msg model =
                                 , page = 0
                                 , missingThumbnails = Set.empty
                                 }
+                        , folderSettingsNav = Just { parent = Nothing
+                                                   , name = "/"
+                                                   , current = value }
                         , waiting = model.waiting - 1
                       }
                     , Cmd.batch
@@ -1075,6 +1092,20 @@ update msg model =
 
                 _ ->
                     ( model, Cmd.none )
+
+        SettingFolderNav m ->
+                case m of
+                        NavUp zipper ->
+                                ( { model | folderSettingsNav = Just zipper }
+                                , Cmd.none )
+                        NavDown (name, tree) ->
+                                case model.folderSettingsNav of
+                                        Nothing -> ( model, Cmd.none)
+                                        Just parent ->
+                                                ( {model | folderSettingsNav = Just { parent = Just (ZipperParent parent)
+                                                                                    , name = name
+                                                                                    , current = tree }}
+                                                , Cmd.none )
 
 
 coreSelect : String -> Core -> Maybe (Select.Item Msg)
@@ -1673,11 +1704,21 @@ scanGamesBlock model =
                 )
             ]
         |> Card.block []
-            (case model.games of
-                GameFoldersLoaded games ->
+            (case (model.folderSettingsNav, model.games) of
+                (Just folders, GameFoldersLoaded games) ->
                     [ Block.text []
-                        [ h3 [] [ text "Game Folders" ]
-                        , ListGroup.ul (folderSelector games.scanningOn games.topFolder)
+                        [ Grid.container []
+                                  [ Grid.row []
+                                      [ Grid.col [ Col.sm6 ]
+                                          [ h4 [] [ text "Folders" ]
+                                          , ListGroup.ul ([ ListGroup.li [ ListGroup.light ] [ text folders.current.path ] ] ++ (folderSelector games.scanningOn folders))
+                                          ]
+                                      , Grid.col [ Col.sm6 ]
+                                          [ h4 [] [ text "Scanned" ]
+                                          , ListGroup.ul (scannedFolderSelector games.scanningOn games.topFolder)
+                                          ]
+                                      ]
+                                  ]
                         ]
                     ]
 
@@ -2773,18 +2814,30 @@ isJust x =
             True
 
 
-addFolderSelector : Maybe String -> String -> GameTree -> List (ListGroup.Item Msg) -> List (ListGroup.Item Msg)
-addFolderSelector scanningOn _ gt xs =
-    folderSelector scanningOn gt ++ xs
+-- addFolderSelector : Maybe String -> String -> GameTree -> List (ListGroup.Item Msg) -> List (ListGroup.Item Msg)
+-- addFolderSelector scanningOn _ gt xs =
+--     folderSelector scanningOn gt ++ xs
 
 
-folderSelector : Maybe String -> GameTree -> List (ListGroup.Item Msg)
+folderSelector : Maybe String -> GameTreeZipper -> List (ListGroup.Item Msg)
 folderSelector scanningOn gt =
-    (if String.length gt.path >= String.length "/media/fat" then
-        [ gameFolderElement scanningOn gt.path gt.scanned ]
+    let
+        parent = case gt.parent of
+                Just (ZipperParent zz) -> [gameSubFolderElement scanningOn ".." ScanFound "" (onClick <| SettingFolderNav <| NavUp zz)]
+                _ -> []
+        in
+    case gt.current.contents of
+        Contents folders ->
+            Dict.foldl (\k v acc -> acc ++ [gameSubFolderElement scanningOn k v.scanned v.path (onClick <| SettingFolderNav <| NavDown (k, v))]) parent folders
 
-     else
-        []
+
+scannedFolderSelector : Maybe String -> GameTree -> List (ListGroup.Item Msg)
+scannedFolderSelector scanningOn gt =
+    (case gt.scanned of
+            ScanFound ->
+                [ gameFolderElement scanningOn gt.path gt.scanned ]
+
+            _ -> []
     )
         ++ (case gt.scanned of
                 ScanFound ->
@@ -2793,7 +2846,7 @@ folderSelector scanningOn gt =
                 _ ->
                     case gt.contents of
                         Contents c ->
-                            Dict.foldr (addFolderSelector scanningOn) [] c
+                            Dict.foldr (\k v acc -> (scannedFolderSelector scanningOn v) ++ acc) [] c
            )
 
 
@@ -2812,6 +2865,27 @@ scanningSpinner path scanningOn textNoScanning textScanning =
             else
                 [ text textNoScanning ]
 
+gameSubFolderElement : Maybe String -> String -> ScanStatus -> String -> Attribute Msg -> ListGroup.Item Msg
+gameSubFolderElement scanningOn name scanned path clickEv =
+    ListGroup.li [ ListGroup.attrs [ Flex.block, Flex.justifyBetween, Flex.alignItemsCenter ] ]
+        ([ Button.button [ Button.roleLink, Button.attrs [ clickEv ] ] [ text name ] ]
+            ++ [ ButtonGroup.buttonGroup
+                    [ ButtonGroup.small ]
+                    (case scanned of
+                        ScanFound ->
+                            [ ]
+
+                        _ ->
+                            [ ButtonGroup.button
+                                [ Button.disabled (isJust scanningOn)
+                                , Button.primary
+                                , Button.onClick (ScanGames path)
+                                ]
+                                (scanningSpinner path scanningOn "Scan" "Scanning...")
+                            ]
+                    )
+               ]
+        )
 
 gameFolderElement : Maybe String -> String -> ScanStatus -> ListGroup.Item Msg
 gameFolderElement scanningOn name scanned =

@@ -668,6 +668,7 @@ func ScanForGames(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 		return
 	}
+	defer f.Close()
 
 	enc := json.NewEncoder(f)
 
