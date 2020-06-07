@@ -5,6 +5,45 @@ local KEY_ESC = 1
 local KEY_F10 = 68
 local KEY_F12 = 88
 local KEY_DOWN = 108
+local KEYMAP={
+	["0"]=11,
+	["1"]=2,
+	["2"]=3,
+	["3"]=4,
+	["4"]=5,
+	["5"]=6,
+	["6"]=7,
+	["7"]=8,
+	["8"]=9,
+	["9"]=10,
+	["A"]=30,
+	["B"]=48,
+	["C"]=46,
+	["D"]=32,
+	["E"]=18,
+	["F"]=33,
+	["G"]=34,
+	["H"]=35,
+	["I"]=23,
+	["J"]=36,
+	["K"]=37,
+	["L"]=38,
+	["M"]=50,
+	["N"]=49,
+	["O"]=24,
+	["P"]=25,
+	["Q"]=16,
+	["R"]=19,
+	["S"]=31,
+	["T"]=20,
+	["U"]=22,
+	["V"]=47,
+	["W"]=17,
+	["X"]=45,
+	["Y"]=21,
+	["Z"]=44,
+	["\n"]=KEY_ENTER,
+}
 
 cores={
 -- Computer
@@ -13,12 +52,16 @@ cores={
 ["Amstrad"]={
 	["^.*\.dsk$"]={
 		["dir"]="Amstrad",
+		["open_menu_keys"]={KEY_F12},
+		["post_rom_load_keys"]={"cat\n", "run"},
 		["open_filemanager_keys"]={KEY_ENTER}},
 	["^.*\.e..$"]={
 		["dir"]="Amstrad",
+		["open_menu_keys"]={KEY_F12},
 		["open_filemanager_keys"]={KEY_DOWN, KEY_DOWN, KEY_ENTER}},
 	["^.*\.cdt$"]={
 		["dir"]="Amstrad",
+		["open_menu_keys"]={KEY_F12},
 		["open_filemanager_keys"]={KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_ENTER}}
 },
 ["ao486"]={
@@ -100,6 +143,8 @@ cores={
 		["open_filemanager_keys"]={KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_ENTER}},
 	["^.*\.tap$"]={
 		["dir"]="C64",
+		["post_rom_load_keys"]={"load\n"},
+		["rom_load_time"]=2500,
 		["open_filemanager_keys"]={KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_ENTER}}
 },
 ["Galaksija"]={
@@ -212,14 +257,17 @@ cores={
 ["ZX-Spectrum"]={
 	["^.*\.trd$|^.*\.img$|^.*\.dsk$|^.*\.mgt$"]={
 		["dir"]="Spectrum",
+		["core_load_time"]=3000,
 		["open_filemanager_keys"]={KEY_ENTER},
 		["post_rom_load_keys"]={KEY_F10}},
 	["^.*\.tap$|^.*\.csw$|^.*\.tzx$"]={
 		["dir"]="Spectrum",
+		["core_load_time"]=3000,
 		["open_filemanager_keys"]={KEY_DOWN, KEY_ENTER},
 		["post_rom_load_keys"]={KEY_F10}},
 	["^.*\.z80$"]={
 		["dir"]="Spectrum",
+		["core_load_time"]=3000,
 		["open_filemanager_keys"]={KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_ENTER}}
 },
 
@@ -326,9 +374,21 @@ cores={
 	}
 }
 
-function press(key)
-	key_press(key)
-	sleep(500)
+function press(keys)
+	for _, key in pairs(keys) do
+		if type(key) == "number" then
+			key_press(key)
+			sleep(500)
+		elseif type(key) == "string" then
+			for i =1, #key do
+				local c = key:sub(i,i)
+				local k = KEYMAP[string.upper(c)]
+				print("Pressing", c, k)
+				key_press(k)
+				sleep(200)
+			end
+		end
+	end
 end
 
 if method =="boot" then
@@ -347,6 +407,7 @@ elseif method == "rload" then
 			dir = config["dir"]
 			core_load_time = config["core_load_time"] or 5000
 			rom_load_time = config["rom_load_time"] or 5000
+			open_menu_keys = config["open_menu_keys"] or {KEY_ESC, KEY_F12}
 			open_filenamager_keys = config["open_filemanager_keys"] or {}
 			post_rom_load_keys = config["post_rom_load_keys"] or {}
 			break
@@ -365,20 +426,14 @@ elseif method == "rload" then
 	load_core(core_path)
 	sleep(core_load_time)
 	mount(rom, dir, function ()
-		press(KEY_ESC) -- Sometimes the menu will popup others won't
-		press(KEY_F12)
-		for _, key in pairs(open_filenamager_keys) do
-			press(key)
-		end
+		press(open_menu_keys)
+		press(open_filenamager_keys)
 		if is_zip then
-			press(KEY_DOWN)
-			press(KEY_ENTER)
+			press({KEY_DOWN, KEY_ENTER}) -- Select zip file
 		end
-		press(KEY_DOWN)
-		press(KEY_ENTER)
-		for _, key in pairs(post_rom_load_keys) do
-			press(key)
-		end
+		press({KEY_DOWN, KEY_ENTER}) -- Select rom
+		sleep(rom_load_time)
+		press(post_rom_load_keys)
 		sleep(rom_load_time)
 	end)
 else

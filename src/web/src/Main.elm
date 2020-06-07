@@ -9,8 +9,11 @@ import Bootstrap.CDN as CDN
 import Bootstrap.Card as Card
 import Bootstrap.Card.Block as Block
 import Bootstrap.Form as Form
+import Bootstrap.Form.Checkbox as Checkbox
+import Bootstrap.Form.Fieldset as Fieldset
 import Bootstrap.Form.Input as Input
 import Bootstrap.Form.InputGroup as InputGroup
+import Bootstrap.Form.Select as Select
 import Bootstrap.General.HAlign as HAlign
 import Bootstrap.Grid as Grid
 import Bootstrap.Grid.Col as Col
@@ -139,7 +142,9 @@ systemToCoreCodename =
     Dict.fromList
         [ ( "Sinclair - ZX Spectrum", "ZX-Spectrum" )
         , ( "Atari - 2600", "Atari2600" )
-        , ( "Atari - 5200", "Atari5200" )
+
+        -- , ( "Atari - 5200", "Atari5200" )  -- TODO: FIX UNKNOWN
+        -- CARTRIDGE TYPE
         , ( "Sega - Mega Drive - Genesis", "Genesis" )
         , ( "Nintendo - Nintendo Entertainment System", "NES" )
         , ( "Nintendo - Super Nintendo Entertainment System", "SNES" )
@@ -147,6 +152,14 @@ systemToCoreCodename =
         , ( "Nintendo - Game Boy", "Gameboy" )
         , ( "Nintendo - Game Boy Color", "Gameboy" )
         , ( "NEC - PC Engine - TurboGrafx 16", "TurboGrafx16" )
+        , ( "Amstrad - CPC", "Amstrad" )
+        , ( "Coleco - ColecoVision", "ColecoVision" )
+        , ( "Magnavox - Odyssey2", "Odyssey2" )
+        , ( "Sega - Game Gear", "SMS" )
+        , ( "Sega - Master System - Mark III", "SMS" )
+        , ( "Sega - SG-1000", "ColecoVision" )
+
+        -- , ( "NEC - PC Engine CD - TurboGrafx-CD", "TurboGrafx16" )
         ]
 
 
@@ -373,11 +386,12 @@ type alias Model =
     , navState : Navbar.State
     , modalVisibility : Modal.Visibility
     , modalTitle : String
-    , modalBody : String
-    , modalAction : Msg
+    , modalBody : List (Html Msg)
+    , modalFooter : List (Html Msg)
     , messages : List Panel
     , cores : CoreState
     , games : GameState
+    , openContentWithDialog : ContentLoadInfo
     , gameLoaderScript : Maybe String
     , platforms : Maybe (List Platform)
     , waiting : Int
@@ -431,6 +445,16 @@ type alias ContentLoadInfo =
     }
 
 
+emptyContentLoadInfo =
+    { script = ""
+    , method = ""
+    , coreCodeName = ""
+    , corePath = ""
+    , rom = ""
+    , isZip = False
+    }
+
+
 init : Flags -> Url -> Navigation.Key -> ( Model, Cmd Msg )
 init flags url key =
     let
@@ -445,10 +469,11 @@ init flags url key =
                 , page = AboutPage
                 , modalVisibility = Modal.hidden
                 , modalTitle = ""
-                , modalBody = ""
-                , modalAction = CloseModal
+                , modalBody = []
+                , modalFooter = [ Button.button [ Button.warning, Button.onClick CloseModal ] [ text "Proceed" ] ]
                 , cores = CoresNotFound
                 , games = GameFoldersNotFound
+                , openContentWithDialog = emptyContentLoadInfo
                 , gameLoaderScript = Nothing
                 , platforms = Nothing
                 , waiting = 3 -- Per loadCores ...
@@ -481,7 +506,7 @@ type Msg
     | ClickedLink UrlRequest
     | NavMsg Navbar.State
     | CloseModal
-    | ShowModal String String Msg
+    | ShowModal String (List (Html Msg)) (List (Html Msg))
     | LoadCore String
     | GameLoaded (Result Http.Error ())
     | CoreSyncFinished (Result Http.Error ())
@@ -489,6 +514,7 @@ type Msg
     | GameScanFinished (Result Http.Error ())
     | LoadCores
     | LoadContent ContentLoadInfo
+    | ConfigureCustomContentLoad ContentLoadInfo
     | ScanCores Bool
     | ScanGameFolders
     | ScanGames String
@@ -554,7 +580,7 @@ update msg model =
                 | modalVisibility = Modal.shown
                 , modalTitle = title
                 , modalBody = body
-                , modalAction = action
+                , modalFooter = action
               }
             , Cmd.none
             )
@@ -758,8 +784,8 @@ update msg model =
                             , updateStatus = WaitingForReboot
                             , modalVisibility = Modal.shown
                             , modalTitle = "Updated Successfully!"
-                            , modalBody = "Click to finish the installation."
-                            , modalAction = Reload
+                            , modalBody = [ text "Click to finish the installation." ]
+                            , modalFooter = [ Button.button [ Button.warning, Button.onClick Reload ] [ text "Proceed" ] ]
                           }
                         , Cmd.none
                         )
@@ -1016,14 +1042,110 @@ update msg model =
             case model.gameLoaderScript of
                 Just script ->
                     ( { model
-                        | waiting = model.waiting + 1
-                        , modalVisibility = Modal.hidden
+                        | modalVisibility = Modal.hidden
                       }
                     , loadContent { info | script = script }
                     )
 
                 Nothing ->
                     ( model, Cmd.none )
+
+        ConfigureCustomContentLoad info ->
+            case ( model.cores, model.gameLoaderScript ) of
+                ( CoresLoaded cs, Just script ) ->
+                    let
+                        info2 =
+                            { info | script = script }
+                    in
+                    ( { model
+                        | openContentWithDialog = info
+                        , modalVisibility = Modal.shown
+                        , modalTitle = "Open content with..."
+                        , modalBody = openContentWithForm cs info
+                        , modalFooter =
+                            [ Button.button
+                                [ Button.primary
+                                , Button.onClick (LoadContent info)
+                                ]
+                                [ text "Load" ]
+                            ]
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+
+coreSelect : String -> Core -> Maybe (Select.Item Msg)
+coreSelect selectedPath c =
+    case c of
+        MRACore _ ->
+            Nothing
+
+        RBFCore r ->
+            Just
+                (Select.item
+                    [ value (r.path ++ ";" ++ r.codename)
+                    , selected (r.path == selectedPath)
+                    ]
+                    [ text r.filename ]
+                )
+
+
+openContentWithForm : List Core -> ContentLoadInfo -> List (Html Msg)
+openContentWithForm cs info =
+    [ Form.form []
+        [ h4 [] [ text "Content" ]
+        , Form.group []
+            [ Form.label [] [ text "Path" ]
+            , Input.text
+                [ Input.attrs
+                    [ value info.rom
+                    , onInput (\s -> ConfigureCustomContentLoad { info | rom = s })
+                    ]
+                ]
+            ]
+        , Form.label [] [ text "Format" ]
+        , Fieldset.config
+            |> Fieldset.children
+                [ Checkbox.custom
+                    [ Checkbox.id "isZip"
+                    , Checkbox.inline
+                    , Checkbox.checked info.isZip
+                    , Checkbox.onCheck (\s -> ConfigureCustomContentLoad { info | isZip = s })
+                    ]
+                    "Zip file"
+                ]
+            |> Fieldset.view
+        , p [] []
+        , h4 [] [ text "Core" ]
+        , Form.group []
+            [ Form.label [] [ text "Path" ]
+            , Select.select
+                [ Select.onChange
+                    (\s ->
+                        let
+                            parts =
+                                String.split ";" s
+
+                            corePath =
+                                parts |> getAt 0 |> Maybe.withDefault ""
+
+                            coreCodeName =
+                                parts |> getAt 1 |> Maybe.withDefault ""
+                        in
+                        ConfigureCustomContentLoad
+                            { info
+                                | corePath = corePath
+                                , coreCodeName = coreCodeName
+                            }
+                    )
+                ]
+                (List.filterMap (coreSelect info.corePath) cs)
+            ]
+        ]
+    ]
 
 
 initLoadedGameFolders : GameTree -> List ( String, Bool )
@@ -1296,9 +1418,14 @@ loadGameLoaderScript =
 
 loadGameFolders : Cmd Msg
 loadGameFolders =
-    Http.get
-        { url = relative [ "cached", "folders.json" ] []
+    Http.request
+        { method = "GET"
+        , headers = [ Http.header "Cache-Control" "no-store" ]
+        , url = relative [ "cached", "folders.json" ] []
+        , body = Http.emptyBody
         , expect = Http.expectJson GotGameFolders gameTreeDecoder
+        , timeout = Nothing
+        , tracker = Nothing
         }
 
 
@@ -1513,7 +1640,7 @@ scanGamesBlock model =
         [ Card.outlineDark
         , Card.attrs [ Spacing.mb3 ]
         ]
-        |> Card.headerH3 [] [ text "Games" ]
+        |> Card.headerH3 [] [ text "Content" ]
         |> Card.block []
             [ Block.text []
                 ([ p [] [ text "Click on 'Scan now' to start scanning for available game folders in your MiSTer." ]
@@ -1693,10 +1820,9 @@ pageNotFound =
 modal : Model -> Html Msg
 modal model =
     Modal.config CloseModal
-        |> Modal.small
         |> Modal.h4 [] [ text model.modalTitle ]
-        |> Modal.body [] [ text model.modalBody ]
-        |> Modal.footer [] [ Button.button [ Button.warning, Button.onClick model.modalAction ] [ text "Proceed" ] ]
+        |> Modal.body [] model.modalBody
+        |> Modal.footer [] model.modalFooter
         |> Modal.view model.modalVisibility
 
 
@@ -2159,7 +2285,15 @@ coreCard model core =
             cPath core
 
         loadEv =
-            ShowModal "Are you sure?" ("You are about to launch " ++ title ++ ". Any running game will be stopped immediately!") (LoadCore path)
+            ShowModal
+                "Are you sure?"
+                [ p []
+                    [ text "You are about to launch "
+                    , strong [] [ text title ]
+                    , text ". Any running game will be stopped immediately!"
+                    ]
+                ]
+                [ Button.button [ Button.warning, Button.onClick (LoadCore path) ] [ text "Proceed" ] ]
 
         selected =
             if model.selectedCore == Just core then
@@ -2207,7 +2341,7 @@ coreCard model core =
 
 pageGamesPage : Model -> List (Html Msg)
 pageGamesPage model =
-    [ sectionHeading "Games" "Search your game collection and play any ROM with a single click"
+    [ sectionHeading "Content" "Search your game collection and play any ROM with a single click"
     , pageGamesPageContent model
     ]
 
@@ -2463,6 +2597,15 @@ gameCard cores model game =
                     UnrecognizedGame _ ->
                         ""
 
+        basicContentLoadInfo =
+            { method = "rload"
+            , coreCodeName = ""
+            , corePath = ""
+            , script = ""
+            , rom = gamePath game ++ "/" ++ gameFilename game
+            , isZip = isZip (gameFilename game)
+            }
+
         contentLoadInfo =
             case ( cores, game ) of
                 ( CoresLoaded cs, RecognizedGame g ) ->
@@ -2471,12 +2614,9 @@ gameCard cores model game =
                             case getCoreByCodeName cs coreCodeName of
                                 Just corePath ->
                                     Just
-                                        { method = "rload"
-                                        , coreCodeName = coreCodeName
-                                        , corePath = corePath
-                                        , rom = gamePath game ++ "/" ++ gameFilename game
-                                        , script = "" -- To be filled
-                                        , isZip = isZip (gameFilename game)
+                                        { basicContentLoadInfo
+                                            | coreCodeName = coreCodeName
+                                            , corePath = corePath
                                         }
 
                                 _ ->
@@ -2488,20 +2628,42 @@ gameCard cores model game =
                 _ ->
                     Nothing
 
-        runButtonAttrs =
+        loadContentOnClick =
             case contentLoadInfo of
                 Nothing ->
-                    [ class "bg-secondary"
-                    , class "text-center"
-                    ]
+                    []
 
                 Just info ->
-                    [ class "bg-primary"
-                    , class "text-center"
-                    , class "text-white"
-                    , class "runbutton"
-                    , on "click" (Decode.succeed (ShowModal "Are you sure?" ("You are about to launch " ++ titleText ++ ". Any running game will be stopped immediately!") (LoadContent info)))
+                    [ Button.onClick <|
+                        ShowModal
+                            "Are you sure?"
+                            [ p []
+                                [ text "You are about to load "
+                                , strong [] [ text titleText ]
+                                , text " using "
+                                , strong [] [ text info.coreCodeName ]
+                                , text " core. Any running game will be stopped immediately!"
+                                ]
+                            ]
+                            [ Button.button
+                                [ Button.primary
+                                , Button.onClick (LoadContent info)
+                                ]
+                                [ text "Load" ]
+                            ]
                     ]
+
+        loadCustomContentOnClick =
+            [ Button.onClick <|
+                ConfigureCustomContentLoad
+                    (case contentLoadInfo of
+                        Just info ->
+                            info
+
+                        Nothing ->
+                            basicContentLoadInfo
+                    )
+            ]
 
         body =
             Block.text []
@@ -2560,8 +2722,34 @@ gameCard cores model game =
             ]
             [ body ]
         |> Card.footer
-            runButtonAttrs
-            [ text "Run" ]
+            [ class "text-right" ]
+            [ ButtonGroup.buttonGroup [ ButtonGroup.small ]
+                [ ButtonGroup.button
+                    (List.concat
+                        [ [ Button.disabled (not <| isJust contentLoadInfo)
+                          , Button.primary
+                          ]
+                        , loadContentOnClick
+                        ]
+                    )
+                    [ Icon.viewIcon Icon.play ]
+                , ButtonGroup.button
+                    (List.concat
+                        [ [ Button.primary
+                          ]
+                        , loadCustomContentOnClick
+                        ]
+                    )
+                    [ Icon.viewIcon Icon.play
+                    , sup [] [ Icon.viewIcon Icon.plus ]
+                    ]
+                ]
+            ]
+
+
+
+-- runButtonAttrs
+-- [ text "Load" ]
 
 
 noGamesPage : Html Msg

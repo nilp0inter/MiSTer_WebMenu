@@ -475,16 +475,17 @@ func LUAMount(L *lua.LState) int {
 		if !os.IsNotExist(err) {
 			L.RaiseError(err.Error())
 		}
-		if srcStat.IsDir() {
-			os.MkdirAll(dst, os.ModePerm)
-		} else {
-			os.MkdirAll(pathlib.Dir(dst), os.ModePerm)
-			emptyFile, err := os.Create(dst)
-			if err != nil {
-				L.RaiseError(err.Error())
-			}
-			emptyFile.Close()
-		}
+		// if srcStat.IsDir() {
+		os.MkdirAll(dst, os.ModePerm)
+		defer os.Remove(dst)
+		// } else {
+		// 	os.MkdirAll(pathlib.Dir(dst), os.ModePerm)
+		// 	emptyFile, err := os.Create(dst)
+		// 	if err != nil {
+		// 		L.RaiseError(err.Error())
+		// 	}
+		// 	emptyFile.Close()
+		// }
 	}
 	dstStat, err = os.Stat(dst)
 	if err != nil {
@@ -1067,7 +1068,7 @@ func ScanFoldersAndSave(basePath string, recursive bool) error {
 		return err
 	}
 
-	return nil
+	return exec.Command("sync").Run()
 }
 
 func ScanForFolders(w http.ResponseWriter, r *http.Request) {
