@@ -537,7 +537,7 @@ func LUAMount(L *lua.LState) int {
 func LUAMatch(L *lua.LState) int {
 	exp := L.ToString(1)
 	s := L.ToString(2)
-	matched, err := regexp.Match(exp, []byte(s))
+	matched, err := regexp.Match("(?i)"+exp, []byte(s))
 	if err != nil {
 		L.RaiseError(err.Error())
 	}

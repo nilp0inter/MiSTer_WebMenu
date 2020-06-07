@@ -36,6 +36,7 @@ import Html.Events exposing (on, onClick, onInput)
 import Html.Keyed as Keyed
 import Http
 import Json.Decode as Decode exposing (Decoder)
+import Json.Encode as Encode exposing (Value)
 import List.Extra exposing (getAt, greedyGroupsOf, last, stripPrefix)
 import Process
 import Result.Extra
@@ -131,6 +132,22 @@ type alias Panel =
 
 apiRoot =
     ""
+
+
+systemToCoreCodename : Dict String String
+systemToCoreCodename =
+    Dict.fromList
+        [ ( "Sinclair - ZX Spectrum", "ZX-Spectrum" )
+        , ( "Atari - 2600", "Atari2600" )
+        , ( "Atari - 5200", "Atari5200" )
+        , ( "Sega - Mega Drive - Genesis", "Genesis" )
+        , ( "Nintendo - Nintendo Entertainment System", "NES" )
+        , ( "Nintendo - Super Nintendo Entertainment System", "SNES" )
+        , ( "Nintendo - Game Boy Advance", "GBA" )
+        , ( "Nintendo - Game Boy", "Gameboy" )
+        , ( "Nintendo - Game Boy Color", "Gameboy" )
+        , ( "NEC - PC Engine - TurboGrafx 16", "TurboGrafx16" )
+        ]
 
 
 coreImages : Dict String String
@@ -404,6 +421,16 @@ type alias CoreFolder =
     }
 
 
+type alias ContentLoadInfo =
+    { script : String
+    , method : String
+    , coreCodeName : String
+    , corePath : String
+    , rom : String
+    , isZip : Bool
+    }
+
+
 init : Flags -> Url -> Navigation.Key -> ( Model, Cmd Msg )
 init flags url key =
     let
@@ -461,6 +488,7 @@ type Msg
     | GameFolderScanFinished (Result Http.Error ())
     | GameScanFinished (Result Http.Error ())
     | LoadCores
+    | LoadContent ContentLoadInfo
     | ScanCores Bool
     | ScanGameFolders
     | ScanGames String
@@ -984,6 +1012,19 @@ update msg model =
                     , loadGameFolders
                     )
 
+        LoadContent info ->
+            case model.gameLoaderScript of
+                Just script ->
+                    ( { model
+                        | waiting = model.waiting + 1
+                        , modalVisibility = Modal.hidden
+                      }
+                    , loadContent { info | script = script }
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
 
 initLoadedGameFolders : GameTree -> List ( String, Bool )
 initLoadedGameFolders tree =
@@ -1305,6 +1346,15 @@ loadCore : String -> Cmd Msg
 loadCore lpath =
     Http.get
         { url = relative [ "api", "run" ] [ string "path" lpath ]
+        , expect = Http.expectWhatever GameLoaded
+        }
+
+
+loadContent : ContentLoadInfo -> Cmd Msg
+loadContent info =
+    Http.post
+        { url = relative [ "api", "script", "run" ] []
+        , body = Http.jsonBody (loadScriptEncoder info)
         , expect = Http.expectWhatever GameLoaded
         }
 
@@ -2172,7 +2222,7 @@ pageGamesPageContent model =
             waitForSync
 
         GameFoldersLoaded games ->
-            pageGamesLoadedContent games
+            pageGamesLoadedContent model.cores games
 
 
 gameSearch : Maybe String -> Html Msg
@@ -2210,8 +2260,8 @@ filterGameByPath path game =
     String.startsWith path (gamePath game)
 
 
-pageGamesLoadedContent : GameInfo -> Html Msg
-pageGamesLoadedContent games =
+pageGamesLoadedContent : CoreState -> GameInfo -> Html Msg
+pageGamesLoadedContent cs games =
     let
         byPath =
             case games.folder of
@@ -2257,7 +2307,7 @@ pageGamesLoadedContent games =
                 [ gameSearch games.filter
                 , Html.map GameTreeViewMsg (TV.view games.tree)
                 ]
-            , Grid.col [ Col.sm9 ] (paginationBlock ++ (List.concat <| List.map (gameFolderContent games) pageWithSections) ++ paginationBlock)
+            , Grid.col [ Col.sm9 ] (paginationBlock ++ (List.concat <| List.map (gameFolderContent cs games) pageWithSections) ++ paginationBlock)
             ]
         ]
 
@@ -2282,19 +2332,19 @@ gameBrFromPath path =
         List.map (\x -> Breadcrumb.item [] [ text x ]) (String.split "/" path)
 
 
-gameFolderContent : GameInfo -> ( String, List Game ) -> List (Html Msg)
-gameFolderContent m ( path, cs ) =
-    [ gameBrFromPath path ] ++ gameContent m cs
+gameFolderContent : CoreState -> GameInfo -> ( String, List Game ) -> List (Html Msg)
+gameFolderContent cs m ( path, gs ) =
+    [ gameBrFromPath path ] ++ gameContent cs m gs
 
 
-gameKeyAndCard : GameInfo -> Game -> ( String, Card.Config Msg )
-gameKeyAndCard m g =
-    ( gamePath g ++ "/" ++ gameFilename g, gameCard m g )
+gameKeyAndCard : CoreState -> GameInfo -> Game -> ( String, Card.Config Msg )
+gameKeyAndCard cs m g =
+    ( gamePath g ++ "/" ++ gameFilename g, gameCard cs m g )
 
 
-gameContent : GameInfo -> List Game -> List (Html Msg)
-gameContent m cs =
-    List.map Card.keyedDeck (partition 3 ( "", emptyCard ) (List.map (gameKeyAndCard m) cs))
+gameContent : CoreState -> GameInfo -> List Game -> List (Html Msg)
+gameContent cs m gs =
+    List.map Card.keyedDeck (partition 3 ( "", emptyCard ) (List.map (gameKeyAndCard cs m) gs))
 
 
 getFilename : String -> Maybe String
@@ -2375,8 +2425,31 @@ ifNotGameMissing m s =
         s
 
 
-gameCard : GameInfo -> Game -> Card.Config Msg
-gameCard model game =
+isCoreByCodeName : String -> Core -> Maybe String
+isCoreByCodeName codeName =
+    coreBiMap
+        (always Nothing)
+        (\rbf ->
+            if rbf.codename == codeName then
+                Just rbf.path
+
+            else
+                Nothing
+        )
+
+
+getCoreByCodeName : List Core -> String -> Maybe String
+getCoreByCodeName cs codeName =
+    List.head <| List.filterMap (isCoreByCodeName codeName) cs
+
+
+isZip : String -> Bool
+isZip filename =
+    String.contains ".zip/" (String.toLower filename)
+
+
+gameCard : CoreState -> GameInfo -> Game -> Card.Config Msg
+gameCard cores model game =
     let
         titleText =
             gameName game
@@ -2390,8 +2463,45 @@ gameCard model game =
                     UnrecognizedGame _ ->
                         ""
 
-        loadEv =
-            ShowModal "Are you sure?" ("You are about to launch " ++ titleText ++ ". Any running game will be stopped immediately!") (LoadCore "")
+        contentLoadInfo =
+            case ( cores, game ) of
+                ( CoresLoaded cs, RecognizedGame g ) ->
+                    case Dict.get g.system systemToCoreCodename of
+                        Just coreCodeName ->
+                            case getCoreByCodeName cs coreCodeName of
+                                Just corePath ->
+                                    Just
+                                        { method = "rload"
+                                        , coreCodeName = coreCodeName
+                                        , corePath = corePath
+                                        , rom = gamePath game ++ "/" ++ gameFilename game
+                                        , script = "" -- To be filled
+                                        , isZip = isZip (gameFilename game)
+                                        }
+
+                                _ ->
+                                    Nothing
+
+                        _ ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        runButtonAttrs =
+            case contentLoadInfo of
+                Nothing ->
+                    [ class "bg-secondary"
+                    , class "text-center"
+                    ]
+
+                Just info ->
+                    [ class "bg-primary"
+                    , class "text-center"
+                    , class "text-white"
+                    , class "runbutton"
+                    , on "click" (Decode.succeed (ShowModal "Are you sure?" ("You are about to launch " ++ titleText ++ ". Any running game will be stopped immediately!") (LoadContent info)))
+                    ]
 
         body =
             Block.text []
@@ -2450,12 +2560,7 @@ gameCard model game =
             ]
             [ body ]
         |> Card.footer
-            [ class "bg-primary"
-            , class "text-center"
-            , class "text-white"
-            , class "runbutton"
-            , on "click" (Decode.succeed loadEv)
-            ]
+            runButtonAttrs
             [ text "Run" ]
 
 
@@ -2553,3 +2658,23 @@ gameFolderElement scanningOn name scanned =
                     )
                ]
         )
+
+
+loadScriptEncoder : ContentLoadInfo -> Value
+loadScriptEncoder info =
+    scriptCallEncoder
+        [ ( "method", Encode.string info.method )
+        , ( "core_codename", Encode.string info.coreCodeName )
+        , ( "core_path", Encode.string info.corePath )
+        , ( "rom", Encode.string info.rom )
+        , ( "is_zip", Encode.bool info.isZip )
+        ]
+        info.script
+
+
+scriptCallEncoder : List ( String, Value ) -> String -> Value
+scriptCallEncoder params source =
+    Encode.object
+        [ ( "params", Encode.object params )
+        , ( "source", Encode.string source )
+        ]
