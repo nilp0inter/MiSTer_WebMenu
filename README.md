@@ -48,10 +48,11 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
   - [x] Search by name
   - [x] Launch them from the web interface
 - [x] Update from the Web UI
-- [ ] Collection of installed roms
-  - [ ] Scan SD for games
-  - [ ] Filter by metadata (name, platform, genre, favourite...)
-  - [ ] Launch games from the web interface
+- [x] Collection of installed roms
+  - [x] Scan SD for games
+  - [x] Filter by name/folder
+  - [ ] Filter by metadata (platform, genre, favourite...)
+  - [x] Launch games from the web interface
   - [ ] Mark favourite games
 - [ ] Configuration management
 - [ ] Community feed
