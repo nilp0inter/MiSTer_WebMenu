@@ -21,7 +21,7 @@ jobs:
     - run: |
         git fetch --prune --unshallow
     - name: Build binary
-      run: docker run -v `pwd`:/code -t nixos/nix:latest nix-shell --run "cd /code/src/ && make" /code/shell.nix
+      run: docker run -v `pwd`:/code -t nixos/nix:2.3.4 nix-shell --run "cd /code/src/ && make" /code/shell.nix
     - name: Create Checksum File
       run: cd src && sha256sum < webmenu.sh > sha256.sum
     - name: Upload Artifact
