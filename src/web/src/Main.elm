@@ -252,7 +252,7 @@ type alias Platform =
 
 romDecoder : Decode.Decoder Rom
 romDecoder =
-    Decode.map Rom (Decode.field "zip" Decode.string)
+    Decode.map Rom <| Decode.field "zip" Decode.string
 
 
 rbfDecoder : Decode.Decoder RBF
@@ -260,7 +260,7 @@ rbfDecoder =
     Decode.map4 RBF
         (Decode.field "filename" Decode.string)
         (Decode.field "codename" Decode.string)
-        (Decode.field "lpath" (Decode.list Decode.string))
+        (Decode.field "lpath" <| Decode.list Decode.string)
         (Decode.field "path" Decode.string)
 
 
@@ -270,17 +270,17 @@ mraDecoder =
         (Decode.field "path" Decode.string)
         (Decode.field "filename" Decode.string)
         (Decode.field "name" Decode.string)
-        (Decode.field "lpath" (Decode.list Decode.string))
+        (Decode.field "lpath" <| Decode.list Decode.string)
         (Decode.field "md5" Decode.string)
-        (Decode.field "roms" (Decode.map (Maybe.withDefault []) (Decode.nullable (Decode.list romDecoder))))
+        (Decode.field "roms" <| Decode.map (Maybe.withDefault []) <| Decode.nullable <| Decode.list romDecoder)
         (Decode.field "roms_found" Decode.bool)
 
 
 coreDecoder : Decode.Decoder (List Core)
 coreDecoder =
     Decode.map2 (++)
-        (Decode.field "rbfs" (Decode.list (Decode.map RBFCore rbfDecoder)))
-        (Decode.field "mras" (Decode.list (Decode.map MRACore mraDecoder)))
+        (Decode.field "rbfs" <| Decode.list <| Decode.map RBFCore rbfDecoder)
+        (Decode.field "mras" <| Decode.list <| Decode.map MRACore mraDecoder)
 
 
 platformDecoder : Decode.Decoder Platform
@@ -566,7 +566,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Navbar.subscriptions model.navState NavMsg
-        , Sub.map CoreTreeViewMsg (TV.subscriptions model.treeViewModel)
+        , Sub.map CoreTreeViewMsg <| TV.subscriptions model.treeViewModel
         ]
 
 
@@ -898,11 +898,11 @@ update msg model =
                     let
                         ( tree, _ ) =
                             TV.expandOnly underMedia <|
-                                TV.initializeModel gameTreeCfg (buildGameNodes "/" value)
+                                TV.initializeModel gameTreeCfg <|
+                                    buildGameNodes "/" value
 
                         loaded =
-                            Dict.fromList
-                                (initLoadedGameFolders value)
+                            Dict.fromList <| initLoadedGameFolders value
 
                         list =
                             Dict.empty
@@ -1090,7 +1090,7 @@ update msg model =
                         , modalFooter =
                             [ Button.button
                                 [ Button.primary
-                                , Button.onClick (LoadContent info)
+                                , Button.onClick <| LoadContent info
                                 ]
                                 [ text "Load" ]
                             ]
@@ -1117,7 +1117,7 @@ update msg model =
                             ( { model
                                 | folderSettingsNav =
                                     Just
-                                        { parent = Just (ZipperParent parent)
+                                        { parent = Just <| ZipperParent parent
                                         , name = name
                                         , current = tree
                                         }
@@ -1133,13 +1133,12 @@ coreSelect selectedPath c =
             Nothing
 
         RBFCore r ->
-            Just
-                (Select.item
+            Just <|
+                Select.item
                     [ value (r.path ++ ";" ++ r.codename)
                     , selected (r.path == selectedPath)
                     ]
                     [ text r.filename ]
-                )
 
 
 openContentWithForm : List Core -> ContentLoadInfo -> List (Html Msg)
@@ -1209,7 +1208,11 @@ initLoadedGameFolders tree =
     in
     case tree.contents of
         Contents rest ->
-            head ++ List.concat (List.map initLoadedGameFolders (Dict.values rest))
+            head
+                ++ (Dict.values rest
+                        |> List.map initLoadedGameFolders
+                        |> List.concat
+                   )
 
 
 underMedia : GameFolder -> Bool
@@ -1414,7 +1417,7 @@ gameTreeDecoder =
     Decode.map3 GameTree
         (Decode.field "path" Decode.string)
         (Decode.field "scanned" scanStatusDecoder)
-        (Decode.field "contents" (Decode.map Contents (Decode.dict (Decode.lazy (\_ -> gameTreeDecoder)))))
+        (Decode.field "contents" <| Decode.map Contents <| Decode.dict <| Decode.lazy <| \_ -> gameTreeDecoder)
 
 
 syncGameFolder : Cmd Msg
@@ -1480,7 +1483,8 @@ loadGameFolders =
 
 decodeJsonLines : Decoder a -> String -> Result Decode.Error (List a)
 decodeJsonLines decoder lines =
-    List.map (Decode.decodeString decoder) (String.lines lines)
+    String.lines lines
+        |> List.map (Decode.decodeString decoder)
         |> Result.Extra.combine
 
 
@@ -1547,7 +1551,10 @@ urlUpdate url model =
 
 decode : Url -> Maybe Page
 decode url =
-    { url | path = Maybe.withDefault "" url.fragment, fragment = Nothing }
+    { url
+        | path = url.fragment |> Maybe.withDefault ""
+        , fragment = Nothing
+    }
         |> UrlParser.parse routeParser
 
 
@@ -1555,11 +1562,11 @@ routeParser : Parser (Page -> a) a
 routeParser =
     UrlParser.oneOf
         [ UrlParser.map AboutPage top
-        , UrlParser.map CoresPage (UrlParser.s "cores")
-        , UrlParser.map GamesPage (UrlParser.s "content")
-        , UrlParser.map (NotImplementedPage "Community" "View MiSTer news, and receive community updates and relevant content") (UrlParser.s "community")
-        , UrlParser.map SettingsPage (UrlParser.s "settings")
-        , UrlParser.map AboutPage (UrlParser.s "about")
+        , UrlParser.map CoresPage <| UrlParser.s "cores"
+        , UrlParser.map GamesPage <| UrlParser.s "content"
+        , UrlParser.map (NotImplementedPage "Community" "View MiSTer news, and receive community updates and relevant content") <| UrlParser.s "community"
+        , UrlParser.map SettingsPage <| UrlParser.s "settings"
+        , UrlParser.map AboutPage <| UrlParser.s "about"
         ]
 
 
@@ -1729,11 +1736,11 @@ scanGamesBlock model =
                             [ Grid.row []
                                 [ Grid.col [ Col.sm6 ]
                                     [ h4 [] [ text "Folders" ]
-                                    , ListGroup.ul ([ ListGroup.li [ ListGroup.light ] [ text folders.current.path ] ] ++ folderSelector games.scanningOn folders)
+                                    , ListGroup.ul <| [ ListGroup.li [ ListGroup.light ] [ text folders.current.path ] ] ++ folderSelector games.scanningOn folders
                                     ]
                                 , Grid.col [ Col.sm6 ]
                                     [ h4 [] [ text "Scanned" ]
-                                    , ListGroup.ul (scannedFolderSelector games.scanningOn games.topFolder)
+                                    , ListGroup.ul <| scannedFolderSelector games.scanningOn games.topFolder
                                     ]
                                 ]
                             ]
@@ -1759,9 +1766,9 @@ scanCoresBlock model =
                 ]
             , Block.custom <|
                 Button.button
-                    [ Button.disabled (model.cores == ScanningCores)
+                    [ Button.disabled <| model.cores == ScanningCores
                     , Button.primary
-                    , Button.onClick (ScanCores True)
+                    , Button.onClick <| ScanCores True
                     ]
                     [ text "Scan now" ]
             ]
@@ -1979,7 +1986,10 @@ filterByNode : CoreFolder -> Core -> Bool
 filterByNode cf c =
     let
         realPath =
-            Maybe.withDefault [] (List.tail cf.path |> Maybe.map (\xs -> xs ++ [ cf.label ]))
+            cf.path
+                |> List.tail
+                |> Maybe.map (\xs -> xs ++ [ cf.label ])
+                |> Maybe.withDefault []
     in
     case stripPrefix realPath (cLpath c) of
         Nothing ->
@@ -2006,7 +2016,10 @@ coreNodeLabel (T.Node node) =
 
 coreNodeUid : T.Node CoreFolder -> TV.NodeUid String
 coreNodeUid (T.Node node) =
-    TV.NodeUid <| String.join "/" node.data.path ++ node.data.label
+    node.data.path
+        |> String.join "/"
+        |> (++) node.data.label
+        |> TV.NodeUid
 
 
 singleton : List String -> String -> List Core -> T.Node CoreFolder
@@ -2031,7 +2044,10 @@ treeFromList p ss cs =
             Just <|
                 T.Node
                     { data = { label = x, path = p, content = [] }
-                    , children = Maybe.withDefault [] (Maybe.map List.singleton (treeFromList (p ++ [ x ]) xs cs))
+                    , children =
+                        treeFromList (p ++ [ x ]) xs cs
+                            |> Maybe.map List.singleton
+                            |> Maybe.withDefault []
                     }
 
 
@@ -2055,10 +2071,6 @@ coreTreeCfg =
         TV.defaultCssClasses
 
 
-
--- CSS classes to use
-
-
 hasScannedChildren : GameTree -> Bool
 hasScannedChildren folder =
     case folder.contents of
@@ -2074,10 +2086,13 @@ contentToNode hasScannedParent ( label, folder ) =
                 { data = { label = label, path = folder.path }
                 , children =
                     if hasScannedParent || folder.scanned == ScanFound then
-                        List.map (contentToNode True) (Dict.toList cs)
+                        Dict.toList cs
+                            |> List.map (contentToNode True)
 
                     else
-                        List.map (contentToNode False) <| List.filter (\( l, f ) -> hasScannedChildren f) (Dict.toList cs)
+                        Dict.toList cs
+                            |> List.filter (\( l, f ) -> hasScannedChildren f)
+                            |> List.map (contentToNode False)
                 }
 
 
@@ -2087,7 +2102,7 @@ buildGameNodes label folder =
         Contents cs ->
             [ T.Node
                 { data = { label = label, path = folder.path }
-                , children = List.map (contentToNode False) (Dict.toList cs)
+                , children = List.map (contentToNode False) <| Dict.toList cs
                 }
             ]
 
@@ -2162,7 +2177,7 @@ mergeAdding l r =
             T.childrenOf r
     in
     if x.label == y.label && x.path == y.path then
-        [ toNode (mergeFolder x y) (List.foldl mergeForest xs ys) ]
+        [ toNode (mergeFolder x y) <| List.foldl mergeForest xs ys ]
 
     else
         [ toNode x xs, toNode y ys ]
@@ -2177,7 +2192,9 @@ coreSearch model =
                 [ InputGroup.config
                     (InputGroup.search
                         [ Input.attrs [ onInput FilterCores ]
-                        , Input.value (Maybe.withDefault "" model.coreFilter)
+                        , model.coreFilter
+                            |> Maybe.withDefault ""
+                            |> Input.value
                         ]
                     )
                     |> InputGroup.predecessors
@@ -2192,7 +2209,10 @@ matchCoreByString : String -> Core -> Bool
 matchCoreByString t c =
     case c of
         RBFCore r ->
-            String.contains (String.toLower t) (String.toLower r.codename)
+            String.contains
+                (String.toLower t)
+            <|
+                String.toLower r.codename
 
         MRACore m ->
             String.contains (String.toLower t) (String.toLower m.name) || String.contains (String.toLower t) (String.toLower m.filename)
@@ -2209,8 +2229,8 @@ partition n d xs =
 
 brFromPath : List String -> Html Msg
 brFromPath ps =
-    Breadcrumb.container <|
-        List.map (\x -> Breadcrumb.item [] [ text x ]) ps
+    List.map (\x -> Breadcrumb.item [] [ text x ]) ps
+        |> Breadcrumb.container
 
 
 coreFolderContent : Model -> ( List String, List Core ) -> List (Html Msg)
@@ -2225,7 +2245,14 @@ coreKeyAndCard m c =
 
 coreContent : Model -> List Core -> List (Html Msg)
 coreContent m cs =
-    List.map Card.keyedDeck (partition 3 ( "", emptyCard ) (List.map (coreKeyAndCard m) cs))
+    cs
+        |> List.map (coreKeyAndCard m)
+        |> partition 3 ( "", emptyCard )
+        |> List.map Card.keyedDeck
+
+
+
+-- List.map Card.keyedDeck <| partition 3 ( "", emptyCard ) <| List.map (coreKeyAndCard m) cs
 
 
 emptyCard =
@@ -2265,7 +2292,7 @@ coreSyncButton =
             , Block.custom <|
                 Button.button
                     [ Button.primary
-                    , Button.onClick (ScanCores False)
+                    , Button.onClick <| ScanCores False
                     ]
                     [ text "Scan now" ]
             ]
@@ -2305,12 +2332,18 @@ ifNotMissing m s =
 
 rbfImgTop : RBF -> String
 rbfImgTop r =
-    Maybe.withDefault "" <| get r.codename coreImages
+    Maybe.withDefault
+        ""
+    <|
+        get r.codename coreImages
 
 
 mraImgTop : MRA -> String
 mraImgTop m =
-    crossOrigin "https://raw.githubusercontent.com/libretro-thumbnails/MAME/master/Named_Titles" [ percentEncode m.name ++ ".png" ] []
+    crossOrigin
+        "https://raw.githubusercontent.com/libretro-thumbnails/MAME/master/Named_Titles"
+        [ percentEncode m.name ++ ".png" ]
+        []
 
 
 coreCard : Model -> Core -> Card.Config Msg
@@ -2323,18 +2356,33 @@ coreCard model core =
             cName core
 
         imgSrc =
-            ifNotMissing model <| bimap mraImgTop rbfImgTop core
+            ifNotMissing model <|
+                bimap mraImgTop rbfImgTop core
 
         body =
             bimap mraCardBlock rbfCardBlock core
 
         thumbnail =
             if imgSrc == "" then
-                Card.block [ Block.attrs [ class "text-muted", class "d-flex", class "justify-content-center", class "align-items-center", class "corenoimg" ] ]
-                    [ Block.text [] [ text (cFilename core) ] ]
+                Card.block
+                    [ Block.attrs
+                        [ class "text-muted"
+                        , class "d-flex"
+                        , class "justify-content-center"
+                        , class "align-items-center"
+                        , class "corenoimg"
+                        ]
+                    ]
+                    [ Block.text [] [ text <| cFilename core ] ]
 
             else
-                Card.imgTop [ src imgSrc, on "error" (Decode.succeed (MissingThumbnail imgSrc)) ] []
+                Card.imgTop
+                    [ src imgSrc
+                    , on "error" <|
+                        Decode.succeed <|
+                            MissingThumbnail imgSrc
+                    ]
+                    []
 
         corePath =
             cFilename core
@@ -2354,7 +2402,12 @@ coreCard model core =
                     , text ". Any running game will be stopped immediately!"
                     ]
                 ]
-                [ Button.button [ Button.warning, Button.onClick (LoadCore path) ] [ text "Proceed" ] ]
+                [ Button.button
+                    [ Button.warning
+                    , Button.onClick <| LoadCore path
+                    ]
+                    [ text "Proceed" ]
+                ]
 
         selected =
             if model.selectedCore == Just core then
@@ -2367,8 +2420,13 @@ coreCard model core =
         [ Card.outlineSecondary
         , Card.attrs
             [ Spacing.mb4
-            , on "mouseenter" (Decode.succeed (SelectCore <| Just core))
-            , on "mouseleave" (Decode.succeed (SelectCore Nothing))
+            , on "mouseenter" <|
+                Decode.succeed <|
+                    SelectCore <|
+                        Just core
+            , on "mouseleave" <|
+                Decode.succeed <|
+                    SelectCore Nothing
             ]
         ]
         |> Card.header [ class "text-center" ] [ text title ]
@@ -2444,10 +2502,16 @@ filterGame : String -> Game -> Bool
 filterGame s game =
     case game of
         RecognizedGame g ->
-            String.contains (String.toLower s) (String.toLower g.name)
+            String.contains
+                (String.toLower s)
+            <|
+                String.toLower g.name
 
         UnrecognizedGame g ->
-            String.contains (String.toLower s) (String.toLower g.path)
+            String.contains
+                (String.toLower s)
+            <|
+                String.toLower g.path
 
 
 filterGameByPath : String -> Game -> Bool
@@ -2478,7 +2542,11 @@ pageGamesLoadedContent cs games =
             Dict.filter (\k v -> not <| List.isEmpty v) filtered
 
         pages =
-            greedyGroupsOf 90 <| List.take 1200 <| List.concat <| List.map (\( a, xs ) -> xs) <| Dict.toList onlyPopulated
+            greedyGroupsOf 90 <|
+                List.take 1200 <|
+                    List.concat <|
+                        List.map (\( a, xs ) -> xs) <|
+                            Dict.toList onlyPopulated
 
         selectedPage =
             Maybe.withDefault [] (getAt games.page pages)
@@ -2494,7 +2562,9 @@ pageGamesLoadedContent cs games =
                 []
 
         pageWithSections =
-            selectedPage |> DE.groupBy gamePath |> Dict.toList
+            selectedPage
+                |> DE.groupBy gamePath
+                |> Dict.toList
     in
     Grid.container []
         [ Grid.row []
@@ -2502,7 +2572,12 @@ pageGamesLoadedContent cs games =
                 [ gameSearch games.filter
                 , Html.map GameTreeViewMsg (TV.view games.tree)
                 ]
-            , Grid.col [ Col.sm9 ] (paginationBlock ++ (List.concat <| List.map (gameFolderContent cs games) pageWithSections) ++ paginationBlock)
+            , Grid.col
+                [ Col.sm9 ]
+              <|
+                paginationBlock
+                    ++ (List.concat <| List.map (gameFolderContent cs games) pageWithSections)
+                    ++ paginationBlock
             ]
         ]
 
@@ -2524,7 +2599,10 @@ takeWhileLessThan rem xxs =
 gameBrFromPath : String -> Html Msg
 gameBrFromPath path =
     Breadcrumb.container <|
-        List.map (\x -> Breadcrumb.item [] [ text x ]) (String.split "/" path)
+        List.map
+            (\x -> Breadcrumb.item [] [ text x ])
+        <|
+            String.split "/" path
 
 
 gameFolderContent : CoreState -> GameInfo -> ( String, List Game ) -> List (Html Msg)
@@ -2539,7 +2617,9 @@ gameKeyAndCard cs m g =
 
 gameContent : CoreState -> GameInfo -> List Game -> List (Html Msg)
 gameContent cs m gs =
-    List.map Card.keyedDeck (partition 3 ( "", emptyCard ) (List.map (gameKeyAndCard cs m) gs))
+    List.map Card.keyedDeck <|
+        partition 3 ( "", emptyCard ) <|
+            List.map (gameKeyAndCard cs m) gs
 
 
 getFilename : String -> Maybe String
@@ -2640,7 +2720,7 @@ getCoreByCodeName cs codeName =
 
 isZip : String -> Bool
 isZip filename =
-    String.contains ".zip/" (String.toLower filename)
+    String.contains ".zip/" <| String.toLower filename
 
 
 gameCard : CoreState -> GameInfo -> Game -> Card.Config Msg
@@ -2716,14 +2796,13 @@ gameCard cores model game =
 
         loadCustomContentOnClick =
             [ Button.onClick <|
-                ConfigureCustomContentLoad
-                    (case contentLoadInfo of
+                ConfigureCustomContentLoad <|
+                    case contentLoadInfo of
                         Just info ->
                             info
 
                         Nothing ->
                             basicContentLoadInfo
-                    )
             ]
 
         body =
@@ -2787,7 +2866,7 @@ gameCard cores model game =
             [ ButtonGroup.buttonGroup [ ButtonGroup.small ]
                 [ ButtonGroup.button
                     (List.concat
-                        [ [ Button.disabled (not <| isJust contentLoadInfo)
+                        [ [ Button.disabled <| not <| isJust contentLoadInfo
                           , Button.primary
                           ]
                         , loadContentOnClick
@@ -2796,8 +2875,7 @@ gameCard cores model game =
                     [ Icon.viewIcon Icon.play ]
                 , ButtonGroup.button
                     (List.concat
-                        [ [ Button.primary
-                          ]
+                        [ [ Button.primary ]
                         , loadCustomContentOnClick
                         ]
                     )
@@ -2818,8 +2896,7 @@ noGamesPage =
     Card.config []
         |> Card.block []
             [ Block.titleH4 [] [ text "No content yet" ]
-            , Block.text []
-                [ p [] [ text "Go to Settings to configure your content." ] ]
+            , Block.text [] [ p [] [ text "Go to Settings to configure your content." ] ]
             ]
         |> Card.view
 
@@ -2832,12 +2909,6 @@ isJust x =
 
         Just _ ->
             True
-
-
-
--- addFolderSelector : Maybe String -> String -> GameTree -> List (ListGroup.Item Msg) -> List (ListGroup.Item Msg)
--- addFolderSelector scanningOn _ gt xs =
---     folderSelector scanningOn gt ++ xs
 
 
 folderSelector : Maybe String -> GameTreeZipper -> List (ListGroup.Item Msg)
@@ -2894,60 +2965,61 @@ scanningSpinner path scanningOn textNoScanning textScanning =
 
 gameSubFolderElement : Maybe String -> String -> ScanStatus -> String -> Attribute Msg -> ListGroup.Item Msg
 gameSubFolderElement scanningOn name scanned path clickEv =
-    ListGroup.li [ ListGroup.attrs [ Flex.block, Flex.justifyBetween, Flex.alignItemsCenter ] ]
-        ([ Button.button [ Button.roleLink, Button.attrs [ clickEv ] ] [ text name ] ]
-            ++ [ ButtonGroup.buttonGroup
-                    [ ButtonGroup.small ]
-                    (case scanned of
-                        ScanFound ->
-                            []
+    ListGroup.li [ ListGroup.attrs [ Flex.block, Flex.justifyBetween, Flex.alignItemsCenter ] ] <|
+        [ Button.button [ Button.roleLink, Button.attrs [ clickEv ] ] [ text name ]
+        , ButtonGroup.buttonGroup
+            [ ButtonGroup.small ]
+          <|
+            case scanned of
+                ScanFound ->
+                    []
 
-                        _ ->
-                            [ ButtonGroup.button
-                                [ Button.disabled (isJust scanningOn)
-                                , Button.primary
-                                , Button.onClick (ScanGames path)
-                                ]
-                                (scanningSpinner path scanningOn "Scan" "Scanning...")
-                            ]
-                    )
-               ]
-        )
+                _ ->
+                    [ ButtonGroup.button
+                        [ Button.disabled <| isJust scanningOn
+                        , Button.primary
+                        , Button.onClick <| ScanGames path
+                        ]
+                      <|
+                        scanningSpinner path scanningOn "Scan" "Scanning..."
+                    ]
+        ]
 
 
 gameFolderElement : Maybe String -> String -> ScanStatus -> ListGroup.Item Msg
 gameFolderElement scanningOn name scanned =
     ListGroup.li [ ListGroup.attrs [ Flex.block, Flex.justifyBetween, Flex.alignItemsCenter ] ]
-        ([ text name ]
-            ++ [ ButtonGroup.buttonGroup
-                    [ ButtonGroup.small ]
-                    (case scanned of
-                        ScanFound ->
-                            [ ButtonGroup.button
-                                [ Button.disabled (isJust scanningOn)
-                                , Button.primary
-                                , Button.onClick (ScanGames name)
-                                ]
-                                (scanningSpinner name scanningOn "Rescan" "Rescanning...")
-                            , ButtonGroup.button
-                                [ Button.disabled (isJust scanningOn)
-                                , Button.primary
-                                , Button.onClick (DeleteGameScan name)
-                                ]
-                                [ text "Discard" ]
-                            ]
+        [ text name
+        , ButtonGroup.buttonGroup
+            [ ButtonGroup.small ]
+          <|
+            case scanned of
+                ScanFound ->
+                    [ ButtonGroup.button
+                        [ Button.disabled <| isJust scanningOn
+                        , Button.primary
+                        , Button.onClick <| ScanGames name
+                        ]
+                      <|
+                        scanningSpinner name scanningOn "Rescan" "Rescanning..."
+                    , ButtonGroup.button
+                        [ Button.disabled <| isJust scanningOn
+                        , Button.primary
+                        , Button.onClick <| DeleteGameScan name
+                        ]
+                        [ text "Discard" ]
+                    ]
 
-                        _ ->
-                            [ ButtonGroup.button
-                                [ Button.disabled (isJust scanningOn)
-                                , Button.primary
-                                , Button.onClick (ScanGames name)
-                                ]
-                                (scanningSpinner name scanningOn "Scan" "Scanning...")
-                            ]
-                    )
-               ]
-        )
+                _ ->
+                    [ ButtonGroup.button
+                        [ Button.disabled <| isJust scanningOn
+                        , Button.primary
+                        , Button.onClick <| ScanGames name
+                        ]
+                      <|
+                        scanningSpinner name scanningOn "Scan" "Scanning..."
+                    ]
+        ]
 
 
 loadScriptEncoder : ContentLoadInfo -> Value
