@@ -54,6 +54,7 @@ I am not accepting new code pull requests at this stage, but I'd appreciate if y
   - [ ] Filter by metadata (platform, genre, favourite...)
   - [x] Launch games from the web interface
   - [ ] Mark favourite games
+- [ ] Load non-installed cores from the Internet
 - [ ] Configuration management
 - [ ] Community feed
 - [ ] Device information (available capacity, resources...)
