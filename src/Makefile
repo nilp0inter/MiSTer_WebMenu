@@ -31,6 +31,9 @@ deploy-with-log: webmenu.sh
 develop-all:
 	find . -type f -name '*.lua' -or -name '*.elm' -or -name '*.go' -or -name '*.html' -or -name '*.sh' | entr -cd make deploy-with-log
 
+develop-srv:
+	cd srv && find . -type f -name '*.go' | GOPATH="/tmp" GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 entr -cd go build -ldflags="-X main.Version=$$(git describe --tags --always --dirty)"
+
 develop-web:
 	cd web && elm-live src/Main.elm -h 0.0.0.0 --open -d build --start-page="index.html" -- --output="build/elm.min.js"
 
